@@ -1,0 +1,676 @@
+{
+  "_readme": {
+    "purpose": "Sumber kebenaran (source of truth) untuk aplikasi Sistem Transaksi Manga' Travel. Baca file ini sebelum menulis kode. Desain visual ada di design-spec.json.",
+    "how_to_read": [
+      "Setiap item penting punya field 'status': 'confirmed' = sudah disetujui/jelas dari klien atau data asli; 'proposed' = usulan kita, belum disetujui klien tapi BOLEH diimplementasi sebagai default; 'open' = belum diputuskan, JANGAN mengarang, tanyakan ke developer.",
+      "Key JSON memakai bahasa Inggris. Teks yang tampil di UI memakai bahasa Indonesia (lihat design-spec.json > microcopy).",
+      "Jika ada konflik antara file ini dan asumsi Anda, file ini yang menang. Jika file ini diam, tanyakan, jangan menebak."
+    ],
+    "language_of_ui": "id-ID",
+    "last_updated": "2026-10-30"
+  },
+
+  "meta": {
+    "app_name": "Sistem Transaksi Manga' Travel",
+    "client": "Manga' Travel (agen perjalanan / penjualan tiket pesawat)",
+    "version": "0.1.0-draft",
+    "type": "Aplikasi web back-office (internal), responsif desktop-first",
+    "locale": "id-ID",
+    "currency": "IDR",
+    "timezone": { "value": "Asia/Jakarta", "status": "open", "note": "Asumsi sementara karena kode agen berawalan JKT. Konfirmasi ke klien. Simpan timestamp di database dalam UTC, tampilkan sesuai timezone ini." },
+    "sources": [
+      "Brief klien (dokumen 'Rancangan Alur Kerja Sistem Transaksi')",
+      "3 flowchart: filter transaksi, pencarian transaksi, cetak struk",
+      "Contoh data nyata: LAPORAN-CASHFLOW-20260722-20260728.xls (25 baris, 1 pengguna 'eman', agen JKT-37287)",
+      "Jawaban klien atas pertanyaan klarifikasi (lihat client_answers)"
+    ]
+  },
+
+  "overview": {
+    "summary": "Aplikasi untuk melihat mutasi saldo (cashflow) agen travel. Pengguna dapat menyaring, mencari, melihat detail, dan mencetak struk transaksi. Data transaksi dapat masuk melalui input manual, impor Excel, dan integrasi sistem lain.",
+    "primary_goal": "Pengguna menemukan transaksi dengan cepat, menyaring sesuai kebutuhan, dan mencetak bukti transaksi yang sesuai data sistem.",
+    "domain_explanation": "Setiap agen punya saldo (deposit). Saat agen membeli/issued tiket pesawat, saldo berkurang (DEBET, case 'withdrawal') dan agen mendapat bonus kecil (KREDIT, case 'bonus'). Saat agen top up, saldo bertambah (KREDIT, case 'deposit'). Kolom SALDO adalah saldo berjalan setelah tiap transaksi.",
+    "in_scope": [
+      "Login dan peran pengguna (admin, agent)",
+      "Daftar transaksi dengan filter, pencarian, pagination, ringkasan",
+      "Detail transaksi",
+      "Cetak struk individual dan grup, ukuran 58mm / 80mm / A4",
+      "Input manual transaksi",
+      "Impor transaksi dari Excel/CSV dengan pratinjau dan validasi",
+      "Kelola pengguna dan agen (admin)",
+      "Pengaturan profil usaha untuk kop struk",
+      "Integrasi API dari sistem lain (fase akhir)"
+    ],
+    "out_of_scope": [
+      "Proses pemesanan/issued tiket itu sendiri",
+      "Pembayaran online / payment gateway",
+      "Laporan akuntansi lanjutan",
+      "Aplikasi mobile native",
+      "Cetak langsung ke printer tanpa dialog browser (ESC/POS), kecuali diputuskan kemudian (lihat open_questions Q-PRINT-DIRECT)"
+    ]
+  },
+
+  "client_answers": [
+    { "id": "CA-1", "question": "Printer struk?", "answer": "Keduanya: thermal (58mm/80mm) dan A4", "status": "confirmed" },
+    { "id": "CA-2", "question": "Aturan grup struk dan deposit tanpa pasangan?", "answer": "Diserahkan ke tim pengembang untuk menentukan yang terbaik", "status": "confirmed", "resolution": "Lihat features.F-06 > group_rules (proposed)" },
+    { "id": "CA-3", "question": "Satu atau banyak agen, perlu login?", "answer": "Banyak agen dan perlu login", "status": "confirmed" },
+    { "id": "CA-4", "question": "Struk memuat logo/alamat/kontak?", "answer": "Ya, untuk contact person", "status": "confirmed", "note": "Logo dan contact person pasti ada. Alamat belum disebut (lihat Q-ADDRESS)." },
+    { "id": "CA-5", "question": "Cara data masuk?", "answer": "Ketiganya: manual, impor Excel, dan sistem lain", "status": "confirmed" }
+  ],
+
+  "tech_stack": {
+    "status": "proposed",
+    "note": "Usulan. Boleh diganti jika developer punya preferensi lain, asalkan kebutuhan fungsional tetap terpenuhi.",
+    "frontend": "Next.js (App Router) + TypeScript",
+    "styling": "Tailwind CSS (token dari design-spec.json dipetakan ke tailwind.config)",
+    "ui_components": "shadcn/ui atau Radix UI sebagai basis komponen",
+    "backend": "Next.js Route Handlers / Server Actions",
+    "database": "PostgreSQL",
+    "orm": "Prisma",
+    "auth": "Session berbasis cookie httpOnly (mis. Auth.js atau Lucia), password di-hash dengan argon2 atau bcrypt",
+    "excel_parsing": "SheetJS (xlsx) untuk .xls/.xlsx/.csv; sediakan fallback jika file .xls rusak (lihat F-08 > known_quirks)",
+    "validation": "Zod (skema yang sama dipakai form, import, dan API)",
+    "testing": "Vitest untuk unit (parser, hitung saldo, ekstraksi order number), Playwright untuk alur utama"
+  },
+
+  "roles": {
+    "status": "proposed",
+    "admin": {
+      "description": "Pengelola Manga' Travel.",
+      "can": [
+        "Melihat transaksi semua agen",
+        "Memakai filter Kode Agen",
+        "Input manual dan impor untuk agen mana pun",
+        "Kelola pengguna dan agen",
+        "Ubah Pengaturan (profil usaha, kop struk)",
+        "Melihat riwayat impor"
+      ]
+    },
+    "agent": {
+      "description": "Agen travel yang melihat mutasi saldonya sendiri.",
+      "can": [
+        "Melihat HANYA transaksi milik agen-nya sendiri",
+        "Filter, cari, lihat detail, cetak struk"
+      ],
+      "cannot": [
+        "Melihat/mengakses data agen lain",
+        "Melihat filter Kode Agen (otomatis terkunci ke agen sendiri, filter disembunyikan)",
+        "Kelola pengguna/agen/pengaturan"
+      ],
+      "open": "Apakah agen boleh input manual / impor sendiri? Default: TIDAK (lihat Q-AGENT-WRITE)."
+    },
+    "security_rule": "WAJIB: pembatasan data per agen dilakukan di SERVER (query selalu ditambah WHERE agent_id = <agent milik sesi> untuk role agent). Jangan hanya menyembunyikan di UI. Berlaku juga untuk endpoint struk, detail, ekspor, dan API."
+  },
+
+  "data_model": {
+    "note": "Nama tabel/kolom dalam snake_case. Tipe bersifat panduan; sesuaikan dengan ORM.",
+    "money_rule": "Simpan nominal sebagai integer Rupiah (BIGINT), tanpa desimal. Semua data contoh adalah bilangan bulat. Jangan pakai float.",
+    "tables": {
+      "users": {
+        "status": "proposed",
+        "fields": {
+          "id": "uuid / bigint, PK",
+          "username": "string, unik (contoh data: 'eman')",
+          "name": "string",
+          "password_hash": "string",
+          "role": "enum('admin','agent')",
+          "agent_id": "FK agents.id, wajib terisi jika role='agent', null jika admin",
+          "is_active": "boolean, default true",
+          "last_login_at": "timestamp, nullable",
+          "created_at": "timestamp"
+        }
+      },
+      "agents": {
+        "status": "proposed",
+        "fields": {
+          "id": "uuid / bigint, PK",
+          "code": "string, unik, contoh 'JKT-37287'",
+          "name": "string",
+          "is_active": "boolean, default true",
+          "created_at": "timestamp"
+        },
+        "note": "Satu agen boleh punya beberapa pengguna."
+      },
+      "transactions": {
+        "status": "confirmed untuk kolom yang berasal dari data asli; proposed untuk kolom turunan",
+        "fields": {
+          "id": "bigint auto-increment, PK. Ini ID internal sistem. JANGAN memakai kolom ID dari file Excel (di file, ID 1 = transaksi terbaru, urutan terbalik).",
+          "agent_id": "FK agents.id (ditampilkan sebagai KODE AGEN)",
+          "transaction_at": "timestamp, dari kolom TANGGAL (contoh '2026-07-28 14:13:16')",
+          "case": "enum('deposit','withdrawal','bonus'). Lihat catatan 'case_enum_open'.",
+          "description": "text, dari kolom KETERANGAN, simpan apa adanya",
+          "debit": "bigint, default 0. Uang keluar. Kosong di file berarti 0.",
+          "credit": "bigint, default 0. Uang masuk. Kosong di file berarti 0.",
+          "balance": "bigint, saldo setelah transaksi ini. DIHITUNG SISTEM (lihat balance_rules).",
+          "order_number": "string, nullable. Diekstrak dari description (lihat extraction_rules). Contoh '920019906'.",
+          "booking_code": "string, nullable. Diekstrak dari description. Contoh 'EQNMYK'. Hanya ada di baris bonus pada data contoh.",
+          "group_key": "string, nullable. Sama dengan order_number untuk transaksi issued tiket. Null untuk deposit.",
+          "source": "enum('manual','import','api')",
+          "import_batch_id": "FK import_batches.id, nullable",
+          "created_by": "FK users.id, nullable (null untuk API)",
+          "created_at": "timestamp"
+        },
+        "constraints": [
+          "Tepat salah satu dari debit atau credit bernilai > 0 (tidak boleh keduanya > 0, tidak boleh keduanya 0).",
+          "case 'withdrawal' => debit > 0 dan credit = 0.",
+          "case 'bonus' dan 'deposit' => credit > 0 dan debit = 0."
+        ],
+        "indexes": [
+          "(agent_id, transaction_at DESC)",
+          "(group_key)",
+          "(order_number)",
+          "(case)",
+          "Unique-ish untuk deteksi duplikat impor: hash dari (agent_id, transaction_at, case, debit, credit, description)"
+        ],
+        "case_enum_open": "Klien menyebut 'bonus, withdrawal, deposit, dan jenis lainnya yang tersedia'. Jadi daftar case mungkin bertambah. Jangan hardcode di banyak tempat: simpan daftar case di satu konstanta/tabel referensi agar mudah ditambah, dan UI filter harus mengambil daftar case dari sana."
+      },
+      "import_batches": {
+        "status": "proposed",
+        "fields": {
+          "id": "PK",
+          "file_name": "string",
+          "uploaded_by": "FK users.id",
+          "status": "enum('previewed','committed','cancelled')",
+          "total_rows": "int",
+          "valid_rows": "int",
+          "error_rows": "int",
+          "duplicate_rows": "int",
+          "created_at": "timestamp",
+          "committed_at": "timestamp, nullable"
+        }
+      },
+      "settings": {
+        "status": "proposed",
+        "note": "Key-value atau satu baris tunggal.",
+        "fields": {
+          "business_name": "string, default \"Manga' Travel\"",
+          "logo_path": "string",
+          "contact_person_name": "string, WAJIB diisi (klien meminta contact person di struk)",
+          "contact_person_phone": "string, WAJIB diisi",
+          "address": "string, nullable (open: Q-ADDRESS)",
+          "receipt_footer_note": "string, nullable, contoh 'Terima kasih'",
+          "show_balance_on_receipt": "boolean, default false (open: Q-RECEIPT-BALANCE)"
+        }
+      },
+      "audit_logs": {
+        "status": "proposed",
+        "fields": "id, user_id, action (login, create_transaction, import_commit, print_receipt, user_update, setting_update), entity, entity_id, metadata(json), created_at"
+      }
+    }
+  },
+
+  "balance_rules": {
+    "status": "proposed",
+    "formula": "balance_setelah = balance_sebelumnya + credit - debit, dihitung PER AGEN, diurutkan berdasarkan transaction_at menaik, lalu id menaik untuk memutus seri pada detik yang sama.",
+    "verified_against_sample": "Contoh: baris withdrawal 2.117.756 menghasilkan saldo 650.719; lalu bonus 25.796 menghasilkan 676.515 (650.719 + 25.796). Deposit 40.001.002 setelah saldo 3.353.653 menghasilkan 43.354.655. Semua cocok.",
+    "opening_balance": "Jika agen belum punya transaksi sebelumnya (impor pertama), saldo awal diturunkan dari baris kronologis paling awal pada file: opening = saldo_di_file - credit + debit. Simpan sebagai saldo awal agen (mis. field agents.opening_balance) lalu hitung maju dari sana.",
+    "backdated_insert": "Jika transaksi disisipkan dengan transaction_at lebih lama dari transaksi yang sudah ada, saldo semua transaksi sesudahnya harus dihitung ulang (dalam satu transaksi database).",
+    "import_mismatch": "Jika saldo hasil hitung sistem berbeda dengan kolom SALDO di file, tandai sebagai WARNING pada pratinjau impor (bukan error), tampilkan selisihnya, dan tetap pakai nilai hitungan sistem.",
+    "manual_input": "Pengguna TIDAK mengetik saldo. Saldo selalu dihitung sistem."
+  },
+
+  "extraction_rules": {
+    "status": "confirmed untuk pola; proposed untuk penyimpanan",
+    "description": "Diterapkan saat transaksi dibuat (manual/impor/API) dan disimpan ke kolom terpisah. Jangan parse ulang saat mencetak.",
+    "order_number": {
+      "regex": "No\\. Pesanan\\s+(\\d+)",
+      "example_input": "Issued Flight No. Pesanan 920019906",
+      "example_output": "920019906"
+    },
+    "booking_code": {
+      "regex": "\\(Kode Booking\\s+([A-Z0-9]+)\\)",
+      "example_input": "Bonus Issued Flight No. Pesanan 920019906 (Kode Booking EQNMYK)",
+      "example_output": "EQNMYK"
+    },
+    "group_key": "Sama dengan order_number. Jika order_number null, group_key null.",
+    "deposit_description_example": "23/07/2026 11:17:39 903307 TRANSFER DARI | top up mmbc | Bpk ABDUL RACHMAN MANGA 40,001,002 by AUTO-TOPUP (tidak memiliki order_number)",
+    "fallback": "Jika regex tidak cocok, kolom dibiarkan null dan transaksi tetap valid. Jangan menolak baris hanya karena order_number tidak ditemukan.",
+    "fragility_note": "Format keterangan berasal dari sistem luar dan bisa berubah. Letakkan regex di satu modul agar mudah diperbarui."
+  },
+
+  "features": {
+    "F-01": {
+      "name": "Autentikasi (Login/Logout)",
+      "phase": 2,
+      "status": "confirmed",
+      "roles": ["admin", "agent"],
+      "description": "Semua halaman kecuali /login memerlukan sesi login.",
+      "rules": [
+        "Login dengan username + password.",
+        "Pengguna nonaktif (is_active=false) tidak bisa login.",
+        "Setelah login: admin dan agent diarahkan ke /transactions.",
+        "Sesi kedaluwarsa otomatis (usulan 8 jam tidak aktif). Saat kedaluwarsa, arahkan ke /login dan kembalikan ke halaman semula setelah login.",
+        "Batasi percobaan login gagal (rate limit)."
+      ],
+      "acceptance_criteria": [
+        "Mengakses /transactions tanpa login mengarahkan ke /login.",
+        "Agent tidak bisa membuka /admin/*; menghasilkan halaman 403.",
+        "Pesan error login tidak membocorkan apakah username atau password yang salah."
+      ]
+    },
+
+    "F-02": {
+      "name": "Daftar Transaksi",
+      "phase": 1,
+      "status": "confirmed",
+      "roles": ["admin", "agent"],
+      "route": "/transactions",
+      "description": "Halaman utama. Menampilkan seluruh transaksi dalam lingkup akses pengguna.",
+      "default_behavior": {
+        "sort": "transaction_at DESC (terbaru di atas), sama seperti file contoh",
+        "page_size": 25,
+        "page_size_options": [10, 25, 50, 100],
+        "pagination": "server-side"
+      },
+      "columns": ["ID", "Tanggal", "Kode Agen", "Case", "Keterangan", "Debet", "Kredit", "Saldo", "Aksi (Cetak)"],
+      "summary_cards": {
+        "status": "proposed",
+        "items": [
+          "Saldo terakhir: saldo dari transaksi terbaru dalam hasil. HANYA ditampilkan jika hasil mencakup tepat satu agen; jika tidak, tampilkan '—'.",
+          "Total kredit (jumlah kolom kredit pada hasil filter)",
+          "Total debet (jumlah kolom debet pada hasil filter)",
+          "Jumlah transaksi pada hasil filter"
+        ],
+        "note": "Kartu menghitung SELURUH hasil filter, bukan hanya halaman yang tampil."
+      },
+      "states": ["loading (skeleton)", "ada data", "kosong karena belum ada transaksi", "kosong karena filter/pencarian tidak cocok ('Data tidak ditemukan')", "error"],
+      "row_actions": ["Klik baris = buka detail (F-05)", "Tombol Cetak = buka pratinjau struk (F-06)"]
+    },
+
+    "F-03": {
+      "name": "Filter Transaksi",
+      "phase": 1,
+      "status": "confirmed",
+      "roles": ["admin", "agent"],
+      "source_flowchart": "Flowchart 1 (Parameter yang dipilih?)",
+      "ui": "Panel filter (drawer sisi kanan di desktop, layar penuh di mobile) dibuka dari tombol 'Filter'. Filter aktif tampil sebagai chip di atas tabel.",
+      "criteria": {
+        "date_range": {
+          "label": "Tanggal",
+          "input": "tanggal awal dan tanggal akhir",
+          "rule": "Inklusif: dari tanggal_awal 00:00:00 sampai tanggal_akhir 23:59:59 (sesuai timezone aplikasi). Boleh hanya salah satu diisi. Tanggal awal tidak boleh setelah tanggal akhir.",
+          "presets": ["Hari ini", "7 hari terakhir", "Bulan ini", "Bulan lalu"]
+        },
+        "case": {
+          "label": "Jenis (Case)",
+          "input": "multi-select checkbox",
+          "options": "diambil dari daftar case sistem (deposit, withdrawal, bonus, dan seterusnya)",
+          "rule": "Beberapa case dipilih = OR di antara nilai tersebut."
+        },
+        "debit_credit": {
+          "label": "Debet / Kredit",
+          "input": "radio: Semua | Debet | Kredit",
+          "rule": "Debet = debit > 0. Kredit = credit > 0."
+        },
+        "agent_code": {
+          "label": "Kode Agen",
+          "input": "combobox yang bisa diketik dan dipilih",
+          "roles": ["admin"],
+          "rule": "Untuk role agent filter ini TIDAK ditampilkan dan server memaksa agent_id sesi."
+        },
+        "amount_range": {
+          "label": "Nominal",
+          "status": "proposed",
+          "input": "min dan max",
+          "rule": "Berlaku pada nilai yang > 0 antara debit atau credit."
+        },
+        "balance_range": {
+          "label": "Saldo",
+          "status": "proposed",
+          "input": "min dan max"
+        },
+        "description_contains": {
+          "label": "Keterangan",
+          "status": "proposed",
+          "input": "teks",
+          "rule": "Mengandung teks (case-insensitive)."
+        }
+      },
+      "combination_rules": [
+        "Beberapa kriteria dipilih sekaligus = digabung dengan AND.",
+        "Nilai ganda dalam satu kriteria (mis. beberapa case) = OR.",
+        "Filter dan pencarian (F-04) digabung dengan AND (proposed)."
+      ],
+      "user_actions": [
+        "Terapkan filter (tombol 'Terapkan')",
+        "Ubah filter (buka panel lagi, nilai sebelumnya terisi)",
+        "Hapus satu filter (klik 'x' pada chip)",
+        "Hapus semua filter (tombol 'Hapus semua' = kembali ke seluruh transaksi)"
+      ],
+      "url_state": "Simpan filter di query string URL agar bisa di-refresh/dibagikan. Contoh: /transactions?from=2026-07-22&to=2026-07-28&case=deposit",
+      "empty_result": "Tampilkan EmptyState 'Data tidak ditemukan' dengan tombol 'Hapus filter'.",
+      "example": "Tanggal 22-28 Juli 2026 + case deposit => hanya deposit pada rentang itu (pada data contoh: 1 transaksi, ID file 23, Rp40.001.002)."
+    },
+
+    "F-04": {
+      "name": "Pencarian Transaksi",
+      "phase": 1,
+      "status": "confirmed",
+      "roles": ["admin", "agent"],
+      "source_flowchart": "Flowchart 2 (Kata pencarian kosong?)",
+      "ui": "Satu kolom pencarian di atas tabel dengan placeholder 'Cari ID, No. Pesanan, kode booking, atau keterangan'.",
+      "searched_fields": ["id (cocok persis jika input numerik)", "order_number", "booking_code", "kode agen", "case", "description"],
+      "rules": [
+        "Case-insensitive, pencocokan 'mengandung' (contains).",
+        "Kata pencarian kosong atau hanya spasi = tampilkan seluruh transaksi (sesuai filter aktif).",
+        "Ada hasil = tampilkan transaksi yang cocok.",
+        "Tidak ada hasil = pesan 'Transaksi tidak ditemukan'.",
+        "Debounce input 300 ms; tombol Enter juga memicu pencarian.",
+        "Tombol 'x' di dalam kolom untuk mengosongkan pencarian.",
+        "Keyword disimpan di URL (?q=...)."
+      ],
+      "note_flowchart": "Flowchart menyebut 'Sistem mencari pada kolom yang ditentukan'. Kolom yang ditentukan = daftar searched_fields di atas.",
+      "role_scope": "Hasil pencarian tetap dibatasi lingkup agen untuk role agent."
+    },
+
+    "F-05": {
+      "name": "Detail Transaksi",
+      "phase": 1,
+      "status": "confirmed",
+      "roles": ["admin", "agent"],
+      "route": "/transactions/[id] (ditampilkan sebagai drawer di atas daftar; bisa juga dibuka langsung)",
+      "shows": ["ID", "Tanggal & jam", "Kode Agen", "Case (badge)", "Keterangan lengkap", "Debet", "Kredit", "Saldo", "No. Pesanan", "Kode Booking", "Sumber data (manual/impor/api)", "Transaksi terkait (jika ada group_key: daftar transaksi lain dengan group_key sama)"],
+      "actions": ["Cetak Struk Individual", "Cetak Struk Grup (hanya jika punya group_key)"],
+      "errors": "Jika id tidak ada ATAU bukan milik agen pengguna: tampilkan 'Transaksi tidak ditemukan' (jangan bedakan keduanya agar tidak membocorkan keberadaan data)."
+    },
+
+    "F-06": {
+      "name": "Cetak Struk",
+      "phase": 1,
+      "status": "confirmed",
+      "roles": ["admin", "agent"],
+      "source_flowchart": "Flowchart 3 (Cetak individual atau kelompok?)",
+      "routes": ["/transactions/[id]/receipt?mode=individual|group&size=58|80|a4"],
+      "flow": [
+        "Pengguna memilih transaksi, lalu menekan Cetak.",
+        "Jika transaksi tidak ditemukan: tampilkan pesan kesalahan, selesai.",
+        "Sistem menampilkan detail untuk diperiksa.",
+        "Pengguna memilih mode: Individual atau Grup.",
+        "Individual: ambil data satu transaksi.",
+        "Grup: cari transaksi terkait berdasarkan group_rules. Jika tidak ditemukan anggota grup: tampilkan 'Grup transaksi tidak ditemukan'. Jika ditemukan: gabungkan data.",
+        "Bentuk tampilan struk, tampilkan pratinjau.",
+        "Pengguna menekan Cetak, buka dialog cetak browser, selesai."
+      ],
+      "sizes": {
+        "status": "confirmed",
+        "options": ["58mm (thermal)", "80mm (thermal)", "A4"],
+        "default": "80mm (open: Q-DEFAULT-SIZE)",
+        "remember_choice": "Simpan pilihan ukuran terakhir per pengguna (localStorage), proposed.",
+        "implementation": "Satu sumber data, tiga template tampilan. Cetak lewat window.print() dengan CSS @page sesuai ukuran. Detail layout di design-spec.json > receipt."
+      },
+      "group_rules": {
+        "status": "proposed",
+        "decided_by": "Diserahkan klien ke tim pengembang (CA-2)",
+        "key": "Transaksi dalam satu grup = semua transaksi dengan group_key (No. Pesanan) yang sama, pada agen yang sama.",
+        "typical_group": "1 withdrawal (harga tiket) + 1 bonus (kode booking).",
+        "group_receipt_contains": [
+          "No. Pesanan",
+          "Kode Booking (dari baris bonus)",
+          "Waktu transaksi (waktu withdrawal sebagai waktu utama)",
+          "Harga tiket (debit withdrawal)",
+          "Bonus (credit bonus)",
+          "Biaya bersih = harga tiket - bonus",
+          "Kode agen"
+        ],
+        "net_cost_example": "Pesanan 920019906: 2.117.756 - 25.796 = 2.091.960",
+        "deposit_rule": "Transaksi tanpa group_key (mis. deposit) HANYA bisa dicetak sebagai struk individual (judul 'Bukti Top Up'). Tombol 'Cetak Grup' disembunyikan/nonaktif untuk transaksi tanpa group_key.",
+        "incomplete_group": "Jika grup hanya punya sebagian anggota (mis. withdrawal tanpa bonus), tetap cetak dan beri catatan 'Bonus belum tercatat' (atau sesuai bagian yang hilang). Pesan 'grup tidak ditemukan' dipakai hanya jika nol anggota ditemukan.",
+        "more_than_two": "Jika group_key punya lebih dari 2 transaksi, tampilkan semua sebagai baris rincian dan hitung biaya bersih = total debit - total credit."
+      },
+      "individual_receipt_contains": ["Tanggal & jam", "ID transaksi", "Kode agen", "Jenis transaksi (case)", "Keterangan", "Nilai debet atau kredit", "No. Pesanan & Kode Booking jika ada", "Saldo setelah transaksi hanya jika settings.show_balance_on_receipt = true"],
+      "header_on_all_receipts": ["Logo Manga' Travel", "Nama usaha", "Contact person (nama + nomor telepon) dari settings", "Alamat jika diisi di settings"],
+      "footer_on_all_receipts": ["Waktu cetak", "Dicetak oleh (nama pengguna)", "Catatan footer dari settings (opsional)"],
+      "audit": "Setiap aksi cetak dicatat di audit_logs.",
+      "acceptance_criteria": [
+        "Pratinjau dan hasil cetak identik.",
+        "Struk 58mm tidak terpotong; teks panjang membungkus ke baris berikutnya.",
+        "Agent tidak bisa mencetak struk transaksi milik agen lain (server mengembalikan 'tidak ditemukan')."
+      ]
+    },
+
+    "F-07": {
+      "name": "Input Manual Transaksi",
+      "phase": 3,
+      "status": "confirmed (kebutuhan) / proposed (detail)",
+      "roles": ["admin"],
+      "route": "/transactions/new",
+      "fields": [
+        { "name": "agent", "type": "pilih agen", "required": true },
+        { "name": "transaction_at", "type": "datetime", "required": true, "default": "sekarang" },
+        { "name": "case", "type": "select", "required": true },
+        { "name": "description", "type": "text", "required": true },
+        { "name": "amount", "type": "angka > 0", "required": true, "note": "Satu field nominal. Sistem mengisi debit atau credit otomatis berdasarkan case (withdrawal=debit, bonus/deposit=credit)." }
+      ],
+      "rules": [
+        "Saldo TIDAK diinput; dihitung sistem (lihat balance_rules).",
+        "Sistem mengekstrak order_number dan booking_code dari description (lihat extraction_rules).",
+        "Tampilkan pratinjau saldo hasil sebelum menyimpan.",
+        "Setelah simpan: kembali ke daftar dengan toast sukses."
+      ],
+      "open": "Edit/hapus transaksi: default TIDAK diizinkan (data keuangan). Koreksi dilakukan dengan transaksi penyesuaian. Lihat Q-EDIT-DELETE."
+    },
+
+    "F-08": {
+      "name": "Impor Excel / CSV",
+      "phase": 3,
+      "status": "confirmed (kebutuhan) / proposed (detail)",
+      "roles": ["admin"],
+      "route": "/import",
+      "accepted_formats": [".xls", ".xlsx", ".csv"],
+      "max_file_size": "10 MB (proposed)",
+      "expected_layout": {
+        "description": "Mengikuti file contoh 'LAPORAN CASHFLOW'.",
+        "row_1": "Judul laporan, contoh 'LAPORAN CASHFLOW USER: eman - Periode 2026-07-22 s/d 2026-07-28'. Bukan data. Boleh dipakai untuk menampilkan info periode.",
+        "row_2": "Header kolom: ID | TANGGAL | KODE AGEN | CASE | KETERANGAN | DEBET | KREDIT | SALDO",
+        "row_3_onward": "Data. Urutan file: terbaru lebih dulu.",
+        "robustness": "Deteksi baris header dengan mencari baris yang berisi 'TANGGAL' dan 'KODE AGEN' (jangan hardcode nomor baris). Nama kolom dicocokkan case-insensitive dan tanpa spasi berlebih."
+      },
+      "column_mapping": {
+        "ID": "diabaikan (sistem membuat ID sendiri)",
+        "TANGGAL": "transaction_at (format 'YYYY-MM-DD HH:mm:ss')",
+        "KODE AGEN": "agent (harus sudah terdaftar)",
+        "CASE": "case",
+        "KETERANGAN": "description",
+        "DEBET": "debit (kosong = 0)",
+        "KREDIT": "credit (kosong = 0)",
+        "SALDO": "dipakai hanya untuk verifikasi dan saldo awal (lihat balance_rules)"
+      },
+      "flow": [
+        "1. Admin mengunggah file (drag & drop atau pilih file).",
+        "2. Sistem membaca dan memvalidasi setiap baris. Belum menyimpan apa pun.",
+        "3. Tampilkan PRATINJAU: jumlah baris total/valid/error/duplikat/peringatan, tabel baris dengan penanda status per baris.",
+        "4. Admin dapat membatalkan atau menekan 'Impor X baris valid'.",
+        "5. Sistem menyimpan semua baris valid dalam SATU transaksi database (semua berhasil atau tidak sama sekali), menghitung ulang saldo, mencatat import_batches dan audit_logs.",
+        "6. Tampilkan ringkasan hasil."
+      ],
+      "validation": {
+        "errors_block_row": [
+          "TANGGAL kosong atau format tidak dikenali",
+          "KODE AGEN kosong atau tidak terdaftar",
+          "CASE tidak ada dalam daftar case sistem",
+          "DEBET/KREDIT bukan angka, atau negatif",
+          "Debet dan kredit sama-sama terisi (> 0) atau sama-sama kosong",
+          "Case tidak konsisten dengan sisi nominal (mis. withdrawal bernilai kredit)"
+        ],
+        "warnings_do_not_block": [
+          "Saldo di file berbeda dengan hasil hitung sistem",
+          "order_number tidak ditemukan pada case withdrawal/bonus"
+        ],
+        "duplicates": "Baris dianggap duplikat jika hash (agent, transaction_at, case, debit, credit, description) sudah ada di database atau muncul dua kali di file. Duplikat dilewati secara default dan ditampilkan di pratinjau, supaya impor ulang file yang sama aman (idempoten)."
+      },
+      "number_parsing": "Terima angka murni (2117756) maupun yang berformat ribuan ('2,117,756' atau '2.117.756'). Hilangkan simbol 'Rp' dan spasi.",
+      "known_quirks": [
+        "File contoh .xls (LAPORAN-CASHFLOW-20260722-20260728) ditolak oleh pembaca xlrd karena struktur compound document-nya 'corrupt' (seen[2] == 4), tetapi dapat dibuka dan dikonversi oleh LibreOffice. File ini kemungkinan dihasilkan sistem lain dengan penulis .xls yang tidak standar.",
+        "Implementasi harus: coba parser utama (SheetJS) dulu; jika gagal, tampilkan pesan jelas 'File tidak dapat dibaca. Simpan ulang sebagai .xlsx atau .csv lalu coba lagi'. Opsional di server: fallback konversi dengan LibreOffice headless.",
+        "Wajib uji parser dengan file contoh asli, bukan hanya file buatan sendiri."
+      ],
+      "history": "Halaman /import menampilkan riwayat batch (nama file, waktu, pengunggah, jumlah baris). Pembatalan batch yang sudah committed: open (Q-EDIT-DELETE)."
+    },
+
+    "F-09": {
+      "name": "Integrasi Sistem Lain (API Ingest)",
+      "phase": 4,
+      "status": "open",
+      "roles": ["sistem eksternal"],
+      "description": "Sistem lain mengirim transaksi ke aplikasi ini. Detail (sistem apa, format, push atau pull) BELUM diketahui. Jangan dibangun sebelum klien menjelaskan.",
+      "placeholder_design": {
+        "endpoint": "POST /api/v1/ingest/transactions",
+        "auth": "API key per integrasi (header Authorization: Bearer <key>), disimpan ter-hash",
+        "body": "Array transaksi dengan field yang sama seperti input manual + agent_code",
+        "behavior": "Pakai validasi, ekstraksi, deteksi duplikat (idempotensi), dan perhitungan saldo yang SAMA dengan impor Excel. source = 'api'.",
+        "response": "Ringkasan: diterima, duplikat, ditolak (dengan alasan per baris)"
+      },
+      "design_hint": "Susun logika validasi/simpan di satu service bersama (TransactionIngestService) yang dipakai oleh input manual, impor, dan API, supaya perilakunya konsisten."
+    },
+
+    "F-10": {
+      "name": "Kelola Pengguna dan Agen",
+      "phase": 2,
+      "status": "proposed",
+      "roles": ["admin"],
+      "routes": ["/admin/users", "/admin/agents"],
+      "capabilities": ["Tambah/ubah/nonaktifkan agen", "Tambah/ubah/nonaktifkan pengguna", "Atur peran dan tautkan pengguna agent ke agen", "Reset password"],
+      "rules": ["Tidak menghapus permanen; gunakan nonaktifkan.", "Kode agen unik dan tidak boleh diubah setelah punya transaksi.", "Admin tidak boleh menonaktifkan dirinya sendiri."]
+    },
+
+    "F-11": {
+      "name": "Pengaturan",
+      "phase": 2,
+      "status": "proposed",
+      "roles": ["admin"],
+      "route": "/settings",
+      "fields": ["Nama usaha", "Logo (unggah)", "Nama contact person (wajib)", "Nomor telepon contact person (wajib)", "Alamat (opsional)", "Catatan footer struk", "Tampilkan saldo di struk (toggle)"],
+      "note": "Nilai ini dipakai oleh kop struk. Jangan hardcode nama/nomor di kode."
+    }
+  },
+
+  "pages": {
+    "/login": { "roles": ["public"], "features": ["F-01"] },
+    "/transactions": { "roles": ["admin", "agent"], "features": ["F-02", "F-03", "F-04"] },
+    "/transactions/[id]": { "roles": ["admin", "agent"], "features": ["F-05"], "presentation": "drawer" },
+    "/transactions/[id]/receipt": { "roles": ["admin", "agent"], "features": ["F-06"] },
+    "/transactions/new": { "roles": ["admin"], "features": ["F-07"] },
+    "/import": { "roles": ["admin"], "features": ["F-08"] },
+    "/admin/users": { "roles": ["admin"], "features": ["F-10"] },
+    "/admin/agents": { "roles": ["admin"], "features": ["F-10"] },
+    "/settings": { "roles": ["admin"], "features": ["F-11"] },
+    "/403": { "roles": ["any"], "note": "Akses ditolak" },
+    "/404": { "roles": ["any"], "note": "Halaman tidak ditemukan" }
+  },
+
+  "navigation": {
+    "admin": ["Transaksi", "Input Manual", "Impor Excel", "Pengguna", "Agen", "Pengaturan"],
+    "agent": ["Transaksi"],
+    "account_menu": ["Nama pengguna + kode agen", "Keluar"]
+  },
+
+  "api_endpoints_internal": {
+    "status": "proposed",
+    "base": "/api",
+    "auth": [
+      "POST /api/auth/login",
+      "POST /api/auth/logout",
+      "GET  /api/auth/me"
+    ],
+    "transactions": [
+      "GET  /api/transactions  (query: page, pageSize, sort, q, from, to, case[], type=debit|credit, agentCode, amountMin, amountMax, balanceMin, balanceMax, desc)",
+      "GET  /api/transactions/summary  (query sama; mengembalikan total kredit, total debet, jumlah, saldo terakhir)",
+      "GET  /api/transactions/:id",
+      "POST /api/transactions  (admin)"
+    ],
+    "receipts": [
+      "GET  /api/receipts?transactionId=:id&mode=individual|group  (mengembalikan data struk siap render; mencatat audit)"
+    ],
+    "imports": [
+      "POST /api/imports/preview  (multipart file; mengembalikan batchId + hasil validasi)",
+      "POST /api/imports/:batchId/commit",
+      "POST /api/imports/:batchId/cancel",
+      "GET  /api/imports"
+    ],
+    "admin": [
+      "GET/POST/PATCH /api/admin/users",
+      "GET/POST/PATCH /api/admin/agents",
+      "GET/PUT /api/settings"
+    ],
+    "rules": [
+      "Semua endpoint mewajibkan sesi, kecuali login.",
+      "Semua query transaksi dibatasi lingkup agen di server.",
+      "Validasi input dengan skema Zod; kembalikan error terstruktur { code, message, fields? }."
+    ]
+  },
+
+  "formatting_rules": {
+    "currency": "Rp 2.117.756 (pemisah ribuan titik, tanpa desimal). Gunakan Intl.NumberFormat('id-ID').",
+    "empty_amount": "Tampilkan '—' (atau kosong) untuk debet/kredit bernilai 0, seperti file asli yang mengosongkan sel.",
+    "datetime_table": "28 Jul 2026, 14:13:16",
+    "datetime_input": "YYYY-MM-DD HH:mm:ss",
+    "negative_balance": "Jika saldo negatif, tampilkan merah.",
+    "case_display": "Tampilkan sebagai badge dengan label: Deposit, Withdrawal, Bonus. Nilai di database tetap huruf kecil."
+  },
+
+  "non_functional": {
+    "responsive": "Desktop-first. Di layar < 768px tabel berubah menjadi daftar kartu. Pertanyaan perangkat utama pengguna belum terjawab (Q-DEVICE); pastikan keduanya nyaman.",
+    "performance": "Daftar harus tetap cepat pada puluhan ribu baris per agen: pagination server-side dan index database.",
+    "accessibility": "Target WCAG 2.1 AA: kontras warna, fokus keyboard terlihat, label form.",
+    "security": ["Password di-hash", "Cookie httpOnly + secure + sameSite", "CSRF protection untuk aksi tulis", "Rate limit login", "Otorisasi di server pada setiap endpoint", "Validasi tipe & ukuran file unggahan", "Jangan menaruh data pribadi (mis. nama pada keterangan deposit) di log aplikasi"],
+    "data_integrity": "Operasi yang mengubah saldo dilakukan dalam transaksi database.",
+    "language": "Semua teks UI Bahasa Indonesia."
+  },
+
+  "phases": [
+    { "phase": 1, "name": "Prototype inti", "scope": ["F-02", "F-03", "F-04", "F-05", "F-06"], "goal": "Disetujui klien. Boleh memakai data contoh (25 baris) tanpa login.", "status": "proposed" },
+    { "phase": 2, "name": "Login, peran, database", "scope": ["F-01", "F-10", "F-11"], "status": "proposed" },
+    { "phase": 3, "name": "Input data", "scope": ["F-07", "F-08"], "status": "proposed" },
+    { "phase": 4, "name": "Integrasi", "scope": ["F-09"], "status": "open" }
+  ],
+
+  "open_questions": [
+    { "id": "Q-DEVICE", "question": "Perangkat utama pengguna: laptop atau HP?", "default_until_answered": "Desktop-first, tetap responsif" },
+    { "id": "Q-DEFAULT-SIZE", "question": "Ukuran struk default?", "default_until_answered": "80mm" },
+    { "id": "Q-PRINT-DIRECT", "question": "Apakah perlu cetak langsung ke printer thermal tanpa dialog browser?", "default_until_answered": "Tidak; pakai dialog cetak browser" },
+    { "id": "Q-ADDRESS", "question": "Apakah alamat Manga' Travel tampil di struk?", "default_until_answered": "Opsional lewat Pengaturan; kosong = tidak tampil" },
+    { "id": "Q-RECEIPT-BALANCE", "question": "Apakah saldo agen boleh tampil di struk?", "default_until_answered": "Tidak (toggle di Pengaturan)" },
+    { "id": "Q-AGENT-WRITE", "question": "Apakah agen boleh input manual / impor sendiri?", "default_until_answered": "Tidak, hanya admin" },
+    { "id": "Q-EDIT-DELETE", "question": "Apakah transaksi boleh diedit/dihapus/dibatalkan? Bagaimana membatalkan batch impor yang salah?", "default_until_answered": "Tidak ada edit/hapus. Koreksi lewat transaksi penyesuaian. Batch impor tidak bisa dibatalkan setelah commit." },
+    { "id": "Q-CASE-LIST", "question": "Daftar lengkap jenis case selain deposit, withdrawal, bonus?", "default_until_answered": "Tiga case itu; daftar dibuat mudah diperluas" },
+    { "id": "Q-TIMEZONE", "question": "Timezone data?", "default_until_answered": "Asia/Jakarta" },
+    { "id": "Q-INTEGRATION", "question": "Sistem lain apa yang akan terhubung, dan bagaimana (push/pull, format)?", "default_until_answered": "Tidak dibangun (fase 4)" },
+    { "id": "Q-AGENT-CODE-IMPORT", "question": "Jika file impor berisi kode agen yang belum terdaftar: tolak atau buat otomatis?", "default_until_answered": "Tolak baris tersebut dan tampilkan sebagai error" }
+  ],
+
+  "glossary": {
+    "agen": "Pengguna bisnis (agen travel) pemilik saldo. Diidentifikasi KODE AGEN, contoh JKT-37287.",
+    "case": "Jenis transaksi: deposit, withdrawal, bonus.",
+    "debet": "Uang keluar dari saldo agen.",
+    "kredit": "Uang masuk ke saldo agen.",
+    "saldo": "Saldo berjalan setelah tiap transaksi.",
+    "issued": "Tiket sudah diterbitkan.",
+    "no_pesanan": "Nomor pesanan tiket, kunci grup struk. Contoh 920019906.",
+    "kode_booking": "Kode booking maskapai (PNR), contoh EQNMYK.",
+    "struk_grup": "Satu struk yang menggabungkan withdrawal dan bonus dengan No. Pesanan yang sama.",
+    "top_up": "Penambahan saldo (case deposit)."
+  },
+
+  "sample_data": {
+    "note": "Cuplikan dari file asli. ID di sini adalah ID dari file (diabaikan oleh sistem).",
+    "agent_code": "JKT-37287",
+    "rows": [
+      { "file_id": 1, "transaction_at": "2026-07-28 14:13:16", "case": "bonus", "description": "Bonus Issued Flight No. Pesanan 920019906 (Kode Booking EQNMYK)", "debit": 0, "credit": 25796, "balance": 676515 },
+      { "file_id": 2, "transaction_at": "2026-07-28 14:13:06", "case": "withdrawal", "description": "Issued Flight No. Pesanan 920019906", "debit": 2117756, "credit": 0, "balance": 650719 },
+      { "file_id": 23, "transaction_at": "2026-07-23 11:20:26", "case": "deposit", "description": "23/07/2026 11:17:39 903307 TRANSFER DARI | top up mmbc | Bpk ABDUL RACHMAN MANGA 40,001,002 by AUTO-TOPUP", "debit": 0, "credit": 40001002, "balance": 43354655 },
+      { "file_id": 25, "transaction_at": "2026-07-22 20:16:37", "case": "withdrawal", "description": "Issued Flight No. Pesanan 920014282", "debit": 3206756, "credit": 0, "balance": 3339088 }
+    ]
+  },
+
+  "instructions_for_ai_coder": [
+    "Baca seluruh file ini dan design-spec.json sebelum membuat kode.",
+    "Kerjakan per fase (lihat phases). Jangan membangun fitur fase lebih lanjut kecuali diminta.",
+    "Patuhi 'status': confirmed = wajib; proposed = pakai sebagai default; open = tanyakan, jangan mengarang.",
+    "Semua teks UI Bahasa Indonesia; kode, nama variabel, dan komentar boleh Bahasa Inggris.",
+    "Pembatasan data per agen WAJIB di server.",
+    "Jangan menyimpan atau menghitung uang dengan float.",
+    "Gunakan satu service bersama untuk validasi, ekstraksi, dan perhitungan saldo di input manual, impor, dan API.",
+    "Tambahkan unit test untuk: ekstraksi order_number/booking_code, perhitungan saldo (pakai sample_data), aturan grup struk, dan parser impor dengan file contoh asli.",
+    "Jika spesifikasi ambigu atau bertabrakan, berhenti dan ajukan pertanyaan singkat."
+  ]
+}

@@ -1,26 +1,207 @@
 @import "tailwindcss";
 
+/* ============================================================================
+ * Design Tokens — Sumber: docs/design-spec.json
+ * Mode terang saja (light mode). Jangan menulis hex langsung di komponen.
+ * ========================================================================== */
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  /* Primary (Biru logo) */
+  --color-primary-50: #eff6ff;
+  --color-primary-100: #dbeafe;
+  --color-primary-200: #bfdbfe;
+  --color-primary-500: #2272ff;
+  --color-primary-600: #1f6feb;
+  --color-primary-700: #1957c2;
+  --color-primary-800: #1e3a8a;
+
+  /* Accent (Lime logo — HANYA aksen, jangan untuk teks di atas putih) */
+  --color-accent-lime-100: #ecfccb;
+  --color-accent-lime-500: #a8f03a;
+  --color-accent-lime-700: #4d7c0f;
+
+  /* Neutral */
+  --color-neutral-0: #ffffff;
+  --color-neutral-25: #f8fafc;
+  --color-neutral-50: #f1f5f9;
+  --color-neutral-100: #e2e8f0;
+  --color-neutral-200: #cbd5e1;
+  --color-neutral-400: #94a3b8;
+  --color-neutral-500: #64748b;
+  --color-neutral-700: #334155;
+  --color-neutral-900: #0f172a;
+
+  /* Semantic */
+  --color-credit-text: #15803d;
+  --color-credit-bg: #dcfce7;
+  --color-debit-text: #dc2626;
+  --color-debit-bg: #fee2e2;
+  --color-warning-text: #b45309;
+  --color-warning-bg: #fef3c7;
+  --color-info-text: #1957c2;
+  --color-info-bg: #dbeafe;
+  --color-success: #15803d;
+  --color-danger: #dc2626;
+
+  /* Case Badges */
+  --color-case-deposit-bg: #dbeafe;
+  --color-case-deposit-text: #1e40af;
+  --color-case-withdrawal-bg: #ffedd5;
+  --color-case-withdrawal-text: #9a3412;
+  --color-case-bonus-bg: #ecfccb;
+  --color-case-bonus-text: #3f6212;
+  --color-case-unknown-bg: #f1f5f9;
+  --color-case-unknown-text: #334155;
+
+  /* Surfaces */
+  --surface-app: var(--color-neutral-25);
+  --surface-card: var(--color-neutral-0);
+  --surface-sidebar: var(--color-neutral-0);
+  --surface-table-header: var(--color-neutral-50);
+  --surface-table-hover: var(--color-primary-50);
+  --surface-border: var(--color-neutral-100);
+
+  /* Text */
+  --text-primary: var(--color-neutral-900);
+  --text-secondary: var(--color-neutral-500);
+  --text-disabled: var(--color-neutral-400);
+  --text-on-primary: var(--color-neutral-0);
+  --text-link: var(--color-primary-600);
+
+  /* Radius */
+  --radius-sm: 6px;
+  --radius-md: 8px;
+  --radius-lg: 12px;
+  --radius-xl: 16px;
+  --radius-pill: 9999px;
+
+  /* Shadows */
+  --shadow-card: 0 1px 2px rgba(15, 23, 42, 0.06);
+  --shadow-drawer: -8px 0 24px rgba(15, 23, 42, 0.12);
+  --shadow-modal: 0 12px 32px rgba(15, 23, 42, 0.18);
+
+  /* Motion */
+  --duration-fast: 120ms;
+  --duration-base: 200ms;
+  --ease-standard: cubic-bezier(0.2, 0, 0, 1);
 }
 
 @theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+  /* Fonts */
+  --font-sans: var(--font-plus-jakarta), "Inter", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-mono: var(--font-jetbrains-mono), ui-monospace, "SFMono-Regular", Menlo, monospace;
+
+  /* Primary */
+  --color-primary-50: var(--color-primary-50);
+  --color-primary-100: var(--color-primary-100);
+  --color-primary-200: var(--color-primary-200);
+  --color-primary-500: var(--color-primary-500);
+  --color-primary-600: var(--color-primary-600);
+  --color-primary-700: var(--color-primary-700);
+  --color-primary-800: var(--color-primary-800);
+
+  /* Accent */
+  --color-accent-lime-100: var(--color-accent-lime-100);
+  --color-accent-lime-500: var(--color-accent-lime-500);
+  --color-accent-lime-700: var(--color-accent-lime-700);
+
+  /* Neutral */
+  --color-neutral-0: var(--color-neutral-0);
+  --color-neutral-25: var(--color-neutral-25);
+  --color-neutral-50: var(--color-neutral-50);
+  --color-neutral-100: var(--color-neutral-100);
+  --color-neutral-200: var(--color-neutral-200);
+  --color-neutral-400: var(--color-neutral-400);
+  --color-neutral-500: var(--color-neutral-500);
+  --color-neutral-700: var(--color-neutral-700);
+  --color-neutral-900: var(--color-neutral-900);
+
+  /* Semantic */
+  --color-credit-text: var(--color-credit-text);
+  --color-credit-bg: var(--color-credit-bg);
+  --color-debit-text: var(--color-debit-text);
+  --color-debit-bg: var(--color-debit-bg);
+  --color-warning-text: var(--color-warning-text);
+  --color-warning-bg: var(--color-warning-bg);
+  --color-info-text: var(--color-info-text);
+  --color-info-bg: var(--color-info-bg);
+  --color-success: var(--color-success);
+  --color-danger: var(--color-danger);
+
+  /* Case badges */
+  --color-case-deposit-bg: var(--color-case-deposit-bg);
+  --color-case-deposit-text: var(--color-case-deposit-text);
+  --color-case-withdrawal-bg: var(--color-case-withdrawal-bg);
+  --color-case-withdrawal-text: var(--color-case-withdrawal-text);
+  --color-case-bonus-bg: var(--color-case-bonus-bg);
+  --color-case-bonus-text: var(--color-case-bonus-text);
+  --color-case-unknown-bg: var(--color-case-unknown-bg);
+  --color-case-unknown-text: var(--color-case-unknown-text);
+
+  /* Surfaces & Text aliases */
+  --color-surface-app: var(--surface-app);
+  --color-surface-card: var(--surface-card);
+  --color-surface-sidebar: var(--surface-sidebar);
+  --color-surface-table-header: var(--surface-table-header);
+  --color-surface-table-hover: var(--surface-table-hover);
+  --color-surface-border: var(--surface-border);
+
+  /* Shadows */
+  --shadow-card: var(--shadow-card);
+  --shadow-drawer: var(--shadow-drawer);
+  --shadow-modal: var(--shadow-modal);
+
+  /* Radius */
+  --radius-sm: var(--radius-sm);
+  --radius-md: var(--radius-md);
+  --radius-lg: var(--radius-lg);
+  --radius-xl: var(--radius-xl);
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+html {
+  color-scheme: light;
 }
 
 body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  background-color: var(--surface-app);
+  color: var(--text-primary);
+  font-family: var(--font-sans);
+  font-size: 14px;
+  line-height: 20px;
+}
+
+.tabular-nums {
+  font-variant-numeric: tabular-nums;
+}
+
+/* Hormati prefers-reduced-motion sesuai design-spec.json > tokens.motion.rules */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+/* Aturan cetak struk (F-06): sembunyikan seluruh UI selain area struk */
+@media print {
+  html,
+  body {
+    background: #ffffff !important;
+    color: #000000 !important;
+    margin: 0 !important;
+    padding: 0 !important;
+  }
+
+  .no-print {
+    display: none !important;
+  }
+
+  .print-area {
+    box-shadow: none !important;
+    border: none !important;
+    margin: 0 !important;
+  }
 }

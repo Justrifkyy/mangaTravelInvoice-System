@@ -1,0 +1,142 @@
+// Sumber kebenaran model data: docs/app-spec.json > data_model
+// Provider: MySQL (siap disambungkan ke XAMPP lokal: mysql://root:@localhost:3306/manga_travel)
+// Nominal uang disimpan sebagai BIGINT (integer Rupiah, tanpa float/desimal).
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "mysql"
+  url      = env("DATABASE_URL")
+}
+
+enum UserRole {
+  admin
+  agent
+}
+
+enum TransactionSource {
+  manual
+  import
+  api
+}
+
+enum ImportBatchStatus {
+  previewed
+  committed
+  cancelled
+}
+
+model Agent {
+  id             String        @id @default(uuid())
+  code           String        @unique
+  name           String
+  openingBalance BigInt        @default(0) @map("opening_balance")
+  isActive       Boolean       @default(true) @map("is_active")
+  createdAt      DateTime      @default(now()) @map("created_at")
+  users          User[]
+  transactions   Transaction[]
+
+  @@map("agents")
+}
+
+model User {
+  id            String        @id @default(uuid())
+  username      String        @unique
+  name          String
+  passwordHash  String        @map("password_hash")
+  role          UserRole
+  agentId       String?       @map("agent_id")
+  isActive      Boolean       @default(true) @map("is_active")
+  lastLoginAt   DateTime?     @map("last_login_at")
+  createdAt     DateTime      @default(now()) @map("created_at")
+  agent         Agent?        @relation(fields: [agentId], references: [id])
+  transactions  Transaction[]
+  importBatches ImportBatch[]
+  auditLogs     AuditLog[]
+
+  @@index([agentId])
+  @@map("users")
+}
+
+model Transaction {
+  id            BigInt            @id @default(autoincrement())
+  agentId       String            @map("agent_id")
+  transactionAt DateTime          @map("transaction_at")
+  /// Nilai case disimpan lowercase (deposit, withdrawal, bonus, dst.) sesuai daftar konstanta sistem
+  case          String
+  description   String            @db.Text
+  debit         BigInt            @default(0)
+  credit        BigInt            @default(0)
+  balance       BigInt
+  orderNumber   String?           @map("order_number")
+  bookingCode   String?           @map("booking_code")
+  groupKey      String?           @map("group_key")
+  dedupHash     String?           @unique @map("dedup_hash")
+  source        TransactionSource
+  importBatchId String?           @map("import_batch_id")
+  createdBy     String?           @map("created_by")
+  createdAt     DateTime          @default(now()) @map("created_at")
+
+  agent       Agent        @relation(fields: [agentId], references: [id], map: "fk_manga_transactions_agent")
+  importBatch ImportBatch? @relation(fields: [importBatchId], references: [id], map: "fk_manga_transactions_import_batch")
+  creator     User?        @relation(fields: [createdBy], references: [id], map: "fk_manga_transactions_creator")
+
+  @@index([agentId, transactionAt(sort: Desc)])
+  @@index([groupKey])
+  @@index([orderNumber])
+  @@index([case])
+  @@map("transactions")
+}
+
+model ImportBatch {
+  id             String            @id @default(uuid())
+  fileName       String            @map("file_name")
+  uploadedBy     String            @map("uploaded_by")
+  status         ImportBatchStatus @default(previewed)
+  totalRows      Int               @default(0) @map("total_rows")
+  validRows      Int               @default(0) @map("valid_rows")
+  warningRows    Int               @default(0) @map("warning_rows")
+  errorRows      Int               @default(0) @map("error_rows")
+  duplicateRows  Int               @default(0) @map("duplicate_rows")
+  previewPayload Json?             @map("preview_payload")
+  createdAt      DateTime          @default(now()) @map("created_at")
+  committedAt    DateTime?         @map("committed_at")
+
+  uploader     User          @relation(fields: [uploadedBy], references: [id])
+  transactions Transaction[]
+
+  @@index([createdAt(sort: Desc)])
+  @@map("import_batches")
+}
+
+model Setting {
+  id                   Int      @id @default(1)
+  businessName         String   @default("Manga' Travel") @map("business_name")
+  logoPath             String?  @map("logo_path") @db.LongText
+  contactPersonName    String   @map("contact_person_name")
+  contactPersonPhone   String   @map("contact_person_phone")
+  address              String?  @db.Text
+  receiptFooterNote    String?  @map("receipt_footer_note") @db.Text
+  showBalanceOnReceipt Boolean  @default(false) @map("show_balance_on_receipt")
+  showThermalLogo      Boolean  @default(true) @map("show_thermal_logo")
+  updatedAt            DateTime @updatedAt @map("updated_at")
+
+  @@map("settings")
+}
+
+model AuditLog {
+  id        BigInt   @id @default(autoincrement())
+  userId    String?  @map("user_id")
+  action    String
+  entity    String
+  entityId  String?  @map("entity_id")
+  metadata  Json?
+  createdAt DateTime @default(now()) @map("created_at")
+
+  user User? @relation(fields: [userId], references: [id])
+
+  @@index([action, createdAt(sort: Desc)])
+  @@map("audit_logs")
+}

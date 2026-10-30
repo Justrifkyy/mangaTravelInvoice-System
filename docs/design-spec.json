@@ -1,0 +1,409 @@
+{
+  "_readme": {
+    "purpose": "Dokumentasi desain (design system) untuk Sistem Transaksi Manga' Travel. Pasangan dari app-spec.json (fitur & aturan). File ini menjawab 'tampilannya seperti apa'.",
+    "status_legend": "confirmed = sudah pasti; proposed = usulan default yang boleh dipakai; open = belum diputuskan.",
+    "important": [
+      "Semua nilai warna adalah ESTIMASI dari logo. Verifikasi dengan eyedropper pada file logo asli sebelum dikunci.",
+      "Implementasikan token sebagai CSS variables dan petakan ke Tailwind theme. Jangan menulis hex langsung di komponen.",
+      "Desain mode terang saja (light mode) untuk saat ini."
+    ],
+    "last_updated": "2026-10-30"
+  },
+
+  "brand": {
+    "name": "Manga' Travel",
+    "logo": {
+      "status": "confirmed",
+      "description": "Siluet pesawat biru di atas belah ketupat (diamond) hijau lime, dengan tulisan 'Manga' Travel' berhuruf serif biru di bawahnya.",
+      "source_file": "Logo dari klien (JPEG, latar putih). Simpan di public/brand/logo.jpeg",
+      "todo": "Minta versi PNG transparan atau SVG. Logo JPEG berlatar putih akan terlihat kotak di atas latar berwarna.",
+      "usage": {
+        "header_app": "Versi horizontal kecil atau hanya ikon, tinggi 32px",
+        "login_page": "Logo penuh, lebar 160-200px, di tengah",
+        "receipt": "Hitam-putih/grayscale untuk thermal (lihat receipt.thermal.logo)",
+        "clear_space": "Ruang kosong minimal setinggi huruf 'M' di sekeliling logo",
+        "dont": ["Jangan meregangkan atau memutar logo", "Jangan menaruh logo di atas latar lime/biru tanpa versi putih"]
+      }
+    },
+    "personality": ["Profesional", "Bersih", "Dapat dipercaya", "Ringan (ada nuansa perjalanan/udara)"],
+    "design_direction": "Dashboard keuangan yang bersih, mode terang, banyak ruang putih. Fokus pada keterbacaan tabel angka. Warna logo dipakai hemat: biru sebagai warna aksi, lime sebagai aksen kecil."
+  },
+
+  "tokens": {
+    "colors": {
+      "status": "proposed",
+      "primary": {
+        "50": "#EFF6FF",
+        "100": "#DBEAFE",
+        "200": "#BFDBFE",
+        "500": "#2272FF",
+        "600": "#1F6FEB",
+        "700": "#1957C2",
+        "800": "#1E3A8A",
+        "note": "primary.600 (#1F6FEB) = warna utama tombol/link, mendekati biru logo. Kontras vs putih sekitar 4.6:1 (lolos AA untuk teks normal)."
+      },
+      "accent": {
+        "lime_500": "#A8F03A",
+        "lime_100": "#ECFCCB",
+        "lime_700": "#4D7C0F",
+        "rule": "Lime HANYA untuk aksen (indikator menu aktif, badge, garis dekoratif, highlight). JANGAN dipakai sebagai warna teks di atas putih (kontras sekitar 1.3:1). Teks di atas latar lime memakai neutral.900."
+      },
+      "neutral": {
+        "0": "#FFFFFF",
+        "25": "#F8FAFC",
+        "50": "#F1F5F9",
+        "100": "#E2E8F0",
+        "200": "#CBD5E1",
+        "400": "#94A3B8",
+        "500": "#64748B",
+        "700": "#334155",
+        "900": "#0F172A"
+      },
+      "semantic": {
+        "credit_text": "#15803D",
+        "credit_bg": "#DCFCE7",
+        "debit_text": "#DC2626",
+        "debit_bg": "#FEE2E2",
+        "warning_text": "#B45309",
+        "warning_bg": "#FEF3C7",
+        "info_text": "#1957C2",
+        "info_bg": "#DBEAFE",
+        "success": "#15803D",
+        "danger": "#DC2626",
+        "note": "Kontras estimasi vs putih: credit_text sekitar 5.0:1, debit_text sekitar 4.8:1."
+      },
+      "surfaces": {
+        "app_background": "{neutral.25}",
+        "card": "{neutral.0}",
+        "sidebar": "{neutral.0}",
+        "table_header_bg": "{neutral.50}",
+        "table_row_hover": "{primary.50}",
+        "table_row_zebra": "none (tanpa zebra; pakai garis pemisah tipis)",
+        "border": "{neutral.100}",
+        "focus_ring": "{primary.500} dengan offset 2px"
+      },
+      "text": {
+        "primary": "{neutral.900}",
+        "secondary": "{neutral.500}",
+        "disabled": "{neutral.400}",
+        "on_primary": "#FFFFFF",
+        "link": "{primary.600}"
+      },
+      "case_badges": {
+        "deposit": { "bg": "#DBEAFE", "text": "#1E40AF", "label": "Deposit" },
+        "withdrawal": { "bg": "#FFEDD5", "text": "#9A3412", "label": "Withdrawal" },
+        "bonus": { "bg": "#ECFCCB", "text": "#3F6212", "label": "Bonus" },
+        "unknown_case": { "bg": "#F1F5F9", "text": "#334155", "label": "(tampilkan nilai case apa adanya, huruf kapital di awal)" },
+        "note": "Warna badge tidak boleh menjadi satu-satunya pembeda: label teks selalu ditampilkan."
+      },
+      "amount_colors": {
+        "debit": "{semantic.debit_text}",
+        "credit": "{semantic.credit_text}",
+        "balance": "{text.primary}",
+        "balance_negative": "{semantic.debit_text}",
+        "rule": "Selain warna, nominal debet diawali tanda minus visual opsional dan kredit tanda plus opsional (proposed) agar tetap terbaca oleh pengguna buta warna."
+      }
+    },
+
+    "typography": {
+      "status": "proposed",
+      "font_family": {
+        "ui": "'Plus Jakarta Sans', 'Inter', system-ui, -apple-system, 'Segoe UI', sans-serif",
+        "mono": "'JetBrains Mono', ui-monospace, 'SFMono-Regular', Menlo, monospace",
+        "brand_serif": "Hanya untuk logo (gambar). Jangan dipakai untuk UI."
+      },
+      "numeric": "Angka rupiah dan kolom tabel angka memakai font-variant-numeric: tabular-nums agar digit sejajar, rata kanan.",
+      "scale": {
+        "display": { "size": "28px", "line_height": "36px", "weight": 700, "use": "Judul halaman login" },
+        "h1": { "size": "24px", "line_height": "32px", "weight": 700, "use": "Judul halaman" },
+        "h2": { "size": "18px", "line_height": "28px", "weight": 600, "use": "Judul seksi/drawer" },
+        "body": { "size": "14px", "line_height": "20px", "weight": 400, "use": "Teks umum, isi tabel" },
+        "body_strong": { "size": "14px", "line_height": "20px", "weight": 600 },
+        "small": { "size": "12px", "line_height": "16px", "weight": 500, "use": "Label, badge, keterangan kecil" },
+        "stat_number": { "size": "24px", "line_height": "32px", "weight": 700, "use": "Angka di kartu ringkasan" }
+      }
+    },
+
+    "spacing": {
+      "base_unit": "4px",
+      "scale": [4, 8, 12, 16, 20, 24, 32, 40, 48, 64],
+      "page_padding": { "desktop": "32px", "tablet": "24px", "mobile": "16px" },
+      "card_padding": "20px",
+      "table_cell_padding": "12px 16px",
+      "table_row_height": "52px (desktop), kartu menyesuaikan di mobile"
+    },
+
+    "radius": { "sm": "6px", "md": "8px", "lg": "12px", "xl": "16px", "pill": "9999px" },
+
+    "shadows": {
+      "card": "0 1px 2px rgba(15,23,42,0.06)",
+      "drawer": "-8px 0 24px rgba(15,23,42,0.12)",
+      "modal": "0 12px 32px rgba(15,23,42,0.18)",
+      "note": "Dasarkan pada border tipis; bayangan dipakai hemat."
+    },
+
+    "breakpoints": { "sm": "640px", "md": "768px", "lg": "1024px", "xl": "1280px", "table_to_cards_below": "768px" },
+
+    "motion": {
+      "duration_fast": "120ms",
+      "duration_base": "200ms",
+      "easing": "cubic-bezier(0.2, 0, 0, 1)",
+      "rules": ["Drawer meluncur dari kanan 200ms", "Hormati prefers-reduced-motion (matikan animasi)", "Skeleton memakai pulse halus"]
+    },
+
+    "z_index": { "sticky_header": 10, "drawer": 40, "modal": 50, "toast": 60 }
+  },
+
+  "layout": {
+    "app_shell": {
+      "status": "proposed",
+      "desktop": {
+        "sidebar": { "width": "240px", "collapsible_to": "72px (hanya ikon)", "contents": ["Logo di atas", "Menu navigasi (lihat app-spec > navigation)", "Menu akun di bawah (nama + kode agen + Keluar)"], "active_item": "Latar primary.50, teks primary.700, garis kiri 3px warna lime_500" },
+        "topbar": { "height": "64px", "contents": ["Judul halaman (breadcrumb jika perlu)", "Badge peran (Admin/Agen)"] },
+        "content_max_width": "1440px, rata tengah"
+      },
+      "mobile": {
+        "topbar": "Hamburger + logo kecil",
+        "navigation": "Sidebar menjadi drawer kiri",
+        "filters": "Drawer filter menjadi layar penuh"
+      }
+    },
+    "login_page": "Kartu di tengah layar, lebar maks 400px, latar abu sangat muda dengan sedikit dekorasi belah ketupat lime transparan (opsional, sangat halus). Logo di atas form. Tanpa menu."
+  },
+
+  "components": {
+    "status": "proposed",
+    "note": "Nama komponen adalah usulan. Basis: shadcn/ui atau Radix. Semua komponen interaktif harus dapat dioperasikan dengan keyboard.",
+    "Button": {
+      "variants": {
+        "primary": "Latar primary.600, teks putih, hover primary.700",
+        "secondary": "Latar putih, border neutral.200, teks neutral.700",
+        "ghost": "Tanpa latar, hover neutral.50",
+        "danger": "Latar danger, teks putih (hanya untuk aksi destruktif)"
+      },
+      "sizes": { "sm": "32px", "md": "40px (default)", "lg": "48px" },
+      "states": ["default", "hover", "focus (ring)", "disabled (opacity 50%, tanpa pointer)", "loading (spinner + teks tetap)"],
+      "rule": "Hanya satu tombol primary per area."
+    },
+    "TextInput_Select_DateInput": { "height": "40px", "border": "neutral.200", "focus": "ring primary.500", "error": "border danger + pesan di bawah, 12px danger", "label": "Selalu ada label di atas (bukan hanya placeholder)" },
+    "DateRangePicker": { "inputs": "Dua input tanggal + preset (Hari ini, 7 hari terakhir, Bulan ini, Bulan lalu)", "format": "DD MMM YYYY (tampil), YYYY-MM-DD (nilai)", "validation": "Tanggal awal <= tanggal akhir" },
+    "SearchInput": { "icon": "Kaca pembesar di kiri", "clear_button": "Tombol x muncul saat ada teks", "placeholder": "Cari ID, No. Pesanan, kode booking, atau keterangan", "width": "Lebar penuh di mobile, maks 420px di desktop" },
+    "FilterChip": { "appearance": "Pill, latar primary.50, teks primary.700, ikon x", "content": "Label: nilai, contoh 'Tanggal: 22 Jul - 28 Jul 2026', 'Case: Deposit'", "group_action": "Tautan 'Hapus semua' di ujung barisan chip" },
+    "Badge": { "shape": "pill, tinggi 24px, font small", "use": "Case, peran, status impor" },
+    "StatCard": { "layout": "Label kecil abu di atas, angka besar di bawah, ikon kecil opsional di kanan", "set": ["Saldo terakhir", "Total kredit (hijau)", "Total debet (merah)", "Jumlah transaksi"], "grid": "4 kolom di desktop, 2 kolom di tablet, 1-2 di mobile" },
+    "DataTable": {
+      "header": "Latar table_header_bg, teks small 600 neutral.500 huruf kapital",
+      "sticky_header": true,
+      "sorting": "Kolom Tanggal dapat diurutkan; ikon panah",
+      "hover": "table_row_hover; baris dapat diklik",
+      "footer": "Pagination: 'Menampilkan 1-25 dari 134', tombol Sebelumnya/Berikutnya, pemilih jumlah baris",
+      "horizontal_overflow": "Jika sempit, bungkus dalam container overflow-x: auto"
+    },
+    "TransactionCard_mobile": "Satu transaksi = satu kartu: baris atas badge Case + tanggal; tengah keterangan (maks 2 baris, terpotong); bawah nominal debet/kredit (berwarna) dan saldo; tombol Cetak di kanan bawah.",
+    "Drawer": { "width": "480px (desktop), 100% (mobile)", "header": "Judul + tombol tutup", "footer_sticky": "Tombol aksi (Terapkan/Hapus semua, atau Cetak)", "close_on": ["Tombol x", "Esc", "Klik overlay"] },
+    "Modal": { "use": "Konfirmasi (mis. impor)", "width": "480px" },
+    "Toast": { "position": "kanan atas (desktop), atas tengah (mobile)", "duration": "4 detik", "types": ["success", "error", "info"] },
+    "EmptyState": { "elements": "Ikon/ilustrasi sederhana, judul, teks bantu, tombol aksi", "variants": ["no_data", "no_results", "error", "forbidden"] },
+    "Skeleton": "Pulse abu pada tabel/kartu saat memuat; hindari spinner layar penuh.",
+    "FileDropzone": { "states": ["idle", "drag-over (border primary + latar primary.50)", "uploading", "error"], "text": "Tarik file ke sini atau pilih file. Format .xls, .xlsx, .csv" },
+    "ReceiptPreview": "Lihat bagian receipt.",
+    "ImportRowStatus": { "valid": "ikon centang hijau", "warning": "segitiga kuning + keterangan", "error": "silang merah + alasan", "duplicate": "ikon salin abu + 'Duplikat, dilewati'" }
+  },
+
+  "pages": {
+    "status": "proposed",
+    "/login": {
+      "layout": "Kartu tengah",
+      "elements": ["Logo", "Judul 'Masuk'", "Username", "Password (tombol tampilkan/sembunyikan)", "Tombol Masuk (primary, lebar penuh)", "Pesan error umum di atas tombol"],
+      "states": ["default", "loading", "error: 'Username atau password salah'", "akun nonaktif: 'Akun Anda dinonaktifkan. Hubungi admin.'"]
+    },
+    "/transactions": {
+      "wireframe": [
+        "[Topbar: judul 'Transaksi']",
+        "[Baris StatCard x4]",
+        "[Toolbar: SearchInput | tombol Filter (badge angka filter aktif) | (admin) tombol 'Input Manual' & 'Impor']",
+        "[Baris FilterChip + 'Hapus semua' (hanya jika ada filter aktif)]",
+        "[DataTable]",
+        "[Pagination]"
+      ],
+      "table_columns": [
+        { "key": "id", "label": "ID", "align": "left", "width": "72px", "mobile": "hidden" },
+        { "key": "transaction_at", "label": "Tanggal", "align": "left", "width": "176px", "format": "28 Jul 2026, 14:13:16", "mobile": "kartu" },
+        { "key": "agent_code", "label": "Kode Agen", "align": "left", "width": "120px", "mobile": "hidden (kecuali admin: tampil kecil di kartu)", "visible_for": "admin saja; untuk agent kolom boleh disembunyikan karena selalu sama (proposed)" },
+        { "key": "case", "label": "Case", "align": "left", "width": "120px", "render": "Badge" },
+        { "key": "description", "label": "Keterangan", "align": "left", "width": "fleksibel (sisa ruang)", "overflow": "terpotong 2 baris dengan tooltip/detail untuk teks penuh" },
+        { "key": "debit", "label": "Debet", "align": "right", "width": "140px", "color": "debit", "empty": "—" },
+        { "key": "credit", "label": "Kredit", "align": "right", "width": "140px", "color": "credit", "empty": "—" },
+        { "key": "balance", "label": "Saldo", "align": "right", "width": "150px", "weight": 600 },
+        { "key": "actions", "label": "", "align": "right", "width": "64px", "render": "Ikon printer (aria-label 'Cetak struk')" }
+      ],
+      "interactions": ["Klik baris = buka drawer detail", "Klik ikon printer = buka pratinjau struk tanpa membuka detail", "Fokus keyboard: Enter pada baris membuka detail"]
+    },
+    "filter_drawer": {
+      "title": "Filter Transaksi",
+      "sections_in_order": ["Tanggal (DateRangePicker)", "Jenis (checkbox: Deposit, Withdrawal, Bonus, ...)", "Debet / Kredit (radio)", "Kode Agen (combobox, admin saja)", "Nominal (min-max)", "Saldo (min-max)", "Keterangan mengandung"],
+      "footer": ["Hapus semua (ghost, kiri)", "Terapkan (primary, kanan)"]
+    },
+    "transaction_detail_drawer": {
+      "layout": "Judul 'Detail Transaksi' + badge Case; daftar pasangan label-nilai; blok 'Transaksi Terkait' jika ada group_key",
+      "footer": ["Cetak Struk Individual", "Cetak Struk Grup (disembunyikan jika tanpa group_key)"]
+    },
+    "/transactions/[id]/receipt": {
+      "layout": "Dua kolom di desktop: kiri kontrol, kanan pratinjau; di mobile ditumpuk (kontrol di atas).",
+      "controls": ["Pilihan Mode: Individual | Grup (segmented control)", "Pilihan Ukuran: 58mm | 80mm | A4 (segmented control)", "Tombol Cetak (primary)", "Tombol Kembali"],
+      "preview": "Kertas virtual dengan lebar sesuai ukuran yang dipilih, di atas latar abu, bayangan tipis. Pratinjau = hasil cetak (WYSIWYG)."
+    },
+    "/transactions/new": { "layout": "Form satu kolom dalam kartu, maks lebar 560px, dengan kartu pratinjau saldo di sampingnya (desktop)." },
+    "/import": {
+      "steps_indicator": "1 Unggah > 2 Pratinjau > 3 Selesai",
+      "step_preview": "Baris ringkasan (Total, Valid, Peringatan, Error, Duplikat) sebagai StatCard kecil + DataTable dengan ImportRowStatus + tombol 'Impor X baris valid' dan 'Batal'",
+      "history": "Tabel riwayat impor di bawah"
+    },
+    "/admin/users_agents": "Tabel sederhana + tombol Tambah (membuka Modal/Drawer form) + aksi Ubah dan Nonaktifkan.",
+    "/settings": "Form kartu: profil usaha, unggah logo dengan pratinjau, contact person, alamat, catatan footer, toggle 'Tampilkan saldo di struk'."
+  },
+
+  "receipt": {
+    "status": "proposed (ukuran confirmed)",
+    "principle": "Satu sumber data, tiga template. Pratinjau di layar = hasil cetak. Struk thermal memakai hitam-putih saja, tanpa warna dan tanpa latar.",
+    "print_implementation": {
+      "method": "window.print() pada halaman/iframe khusus struk, CSS @media print menyembunyikan seluruh UI selain struk.",
+      "page_rules": {
+        "58mm": "@page { size: 58mm auto; margin: 0 } dan area konten sekitar 48mm (padding kiri/kanan 5mm)",
+        "80mm": "@page { size: 80mm auto; margin: 0 } dan area konten sekitar 72mm (padding kiri/kanan 4mm)",
+        "a4": "@page { size: A4; margin: 16mm }"
+      },
+      "note": "Lebar cetak efektif tiap printer thermal berbeda; uji dengan printer klien dan sediakan pengaturan padding jika perlu."
+    },
+    "thermal": {
+      "applies_to": ["58mm", "80mm"],
+      "font": { "family": "mono atau sans yang jelas (usulan: 'JetBrains Mono' / Courier-like)", "size_58": "10px", "size_80": "11px", "weight": "400, judul 700" },
+      "alignment": "Rata tengah untuk kop dan judul; label-nilai berbaris kiri-kanan (label kiri, nilai kanan); nominal rata kanan.",
+      "separators": "Garis putus-putus (dashed) antar seksi",
+      "logo": "Grayscale/hitam-putih, lebar maks 60% dari lebar konten (58mm) atau 50% (80mm). Boleh dimatikan jika printer mengaburkan.",
+      "text_wrap": "Teks panjang (keterangan) membungkus ke baris berikutnya, tidak boleh terpotong.",
+      "length": "Tinggi otomatis mengikuti isi (auto)."
+    },
+    "a4": {
+      "font": "'Plus Jakarta Sans' 11-12px",
+      "header": "Logo kiri atas; kanan atas nama usaha, contact person, telepon, alamat",
+      "title": "Judul dokumen di tengah: 'Struk Transaksi' / 'Struk Grup Transaksi' / 'Bukti Top Up'",
+      "body": "Tabel rincian dengan garis tipis; blok ringkasan (biaya bersih) di kanan bawah",
+      "color": "Boleh memakai warna primary pada judul/garis, tetapi tetap terbaca bila dicetak hitam-putih.",
+      "footer": "Waktu cetak, dicetak oleh, catatan footer"
+    },
+    "sections_in_order": {
+      "header": ["Logo", "Manga' Travel", "Contact person: <nama> / <telepon>", "Alamat (jika ada)"],
+      "title": "Dibedakan menurut mode/case",
+      "meta": ["Tanggal & jam", "ID Transaksi", "Kode Agen"],
+      "body_individual": ["Jenis (Case)", "Keterangan", "Nilai Debet atau Kredit", "No. Pesanan & Kode Booking (jika ada)", "Saldo (jika diaktifkan)"],
+      "body_group": [
+        "No. Pesanan",
+        "Kode Booking",
+        "Baris rincian: 'Harga tiket' (debet)",
+        "Baris rincian: 'Bonus' (kredit)",
+        "Garis pemisah",
+        "BIAYA BERSIH = Harga tiket - Bonus (tebal)"
+      ],
+      "footer": ["Dicetak: <tanggal jam>", "Oleh: <nama pengguna>", "Catatan footer (jika ada)"]
+    },
+    "mockups_text": {
+      "thermal_80_group": [
+        "        [LOGO]",
+        "     Manga' Travel",
+        "  CP: <Nama> - <No. Telp>",
+        "--------------------------------",
+        "      STRUK TRANSAKSI",
+        "--------------------------------",
+        "Tanggal   : 28 Jul 2026 14:13",
+        "Agen      : JKT-37287",
+        "No.Pesanan: 920019906",
+        "Booking   : EQNMYK",
+        "--------------------------------",
+        "Harga tiket      Rp 2.117.756",
+        "Bonus            Rp    25.796",
+        "--------------------------------",
+        "BIAYA BERSIH     Rp 2.091.960",
+        "--------------------------------",
+        "Dicetak 30 Okt 2026 10:00",
+        "Oleh: eman",
+        "       Terima kasih"
+      ],
+      "note": "Mockup di atas hanya ilustrasi tata letak. Teks final ditentukan di komponen; nilai contoh berasal dari sample_data di app-spec.json."
+    },
+    "deposit_receipt": "Judul 'BUKTI TOP UP'. Menampilkan tanggal, ID, kode agen, keterangan (bungkus baris), dan nominal kredit. Tanpa baris biaya bersih."
+  },
+
+  "microcopy": {
+    "status": "proposed",
+    "language": "id-ID",
+    "tone": "Sopan, singkat, jelas. Hindari istilah teknis pada pesan untuk pengguna.",
+    "buttons": {
+      "filter": "Filter",
+      "apply": "Terapkan",
+      "clear_all": "Hapus semua",
+      "print": "Cetak",
+      "print_receipt": "Cetak Struk",
+      "close": "Tutup",
+      "back": "Kembali",
+      "cancel": "Batal",
+      "save": "Simpan",
+      "import": "Impor",
+      "login": "Masuk",
+      "logout": "Keluar",
+      "add_manual": "Input Manual"
+    },
+    "empty_and_errors": {
+      "no_transactions": "Belum ada transaksi.",
+      "filter_no_result": "Data tidak ditemukan. Coba ubah atau hapus filter.",
+      "search_no_result": "Transaksi tidak ditemukan. Coba kata kunci lain.",
+      "transaction_not_found": "Transaksi tidak ditemukan.",
+      "group_not_found": "Grup transaksi tidak ditemukan.",
+      "group_incomplete_bonus": "Catatan: bonus belum tercatat untuk pesanan ini.",
+      "forbidden": "Anda tidak memiliki akses ke halaman ini.",
+      "generic_error": "Terjadi kesalahan. Silakan coba lagi.",
+      "session_expired": "Sesi Anda berakhir. Silakan masuk kembali.",
+      "login_failed": "Username atau password salah.",
+      "invalid_date_range": "Tanggal awal tidak boleh setelah tanggal akhir.",
+      "file_unreadable": "File tidak dapat dibaca. Simpan ulang sebagai .xlsx atau .csv lalu coba lagi.",
+      "import_success": "{n} transaksi berhasil diimpor.",
+      "import_duplicates": "{n} baris duplikat dilewati."
+    },
+    "placeholders": {
+      "search": "Cari ID, No. Pesanan, kode booking, atau keterangan",
+      "agent_combobox": "Ketik atau pilih kode agen"
+    },
+    "receipt_titles": {
+      "individual": "STRUK TRANSAKSI",
+      "group": "STRUK GRUP TRANSAKSI",
+      "deposit": "BUKTI TOP UP"
+    }
+  },
+
+  "accessibility": {
+    "standard": "WCAG 2.1 AA",
+    "rules": [
+      "Kontras teks minimal 4.5:1 (teks besar 3:1).",
+      "Semua kontrol dapat dioperasikan dengan keyboard; fokus selalu terlihat.",
+      "Ikon-saja (mis. printer, tutup) wajib punya aria-label.",
+      "Warna tidak menjadi satu-satunya penanda (debet/kredit punya kolom terpisah; badge punya label teks).",
+      "Drawer/modal menjebak fokus dan menutup dengan Esc.",
+      "Pesan error terhubung ke inputnya (aria-describedby).",
+      "Target sentuh minimal 40x40px di mobile."
+    ]
+  },
+
+  "implementation_notes": {
+    "tailwind_mapping": "Petakan tokens.colors ke theme.extend.colors (primary, accent, neutral, credit, debit). Buat utilitas .tabular-nums untuk angka.",
+    "css_variables": "Definisikan token sebagai CSS variables di :root (mis. --color-primary-600) agar gampang diganti setelah warna logo diverifikasi.",
+    "formatting": "Format uang dan tanggal lewat satu util bersama (lihat app-spec > formatting_rules) agar tabel, detail, dan struk konsisten.",
+    "icons": "Gunakan satu set ikon (mis. lucide-react)."
+  },
+
+  "open_design_questions": [
+    { "id": "D-LOGO", "question": "Apakah ada file logo SVG/PNG transparan dan kode warna resmi (brand guideline)?", "default_until_answered": "Pakai estimasi warna dari JPEG" },
+    { "id": "D-FONT", "question": "Apakah klien punya font resmi?", "default_until_answered": "Plus Jakarta Sans" },
+    { "id": "D-DARKMODE", "question": "Perlu dark mode?", "default_until_answered": "Tidak" },
+    { "id": "D-RECEIPT-LOGO", "question": "Apakah logo pada struk thermal diinginkan, mengingat kualitas cetaknya?", "default_until_answered": "Ya, grayscale, bisa dimatikan di Pengaturan" }
+  ]
+}

@@ -1,0 +1,25 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 240 140" fill="none" role="img" aria-label="Logo Manga' Travel">
+  <!-- Placeholder Logo sesuai design-spec.json: Siluet pesawat biru di atas belah ketupat (diamond) hijau lime, tulisan serif biru di bawah -->
+  <rect width="240" height="140" fill="#FFFFFF" />
+  <!-- Diamond hijau lime -->
+  <polygon points="120,12 166,54 120,96 74,54" fill="#A8F03A" />
+  <!-- Siluet pesawat biru mengarah kanan-atas -->
+  <path
+    d="M92 62L144 33C147.5 31 151.5 32.5 150.5 36.2L144 50L154 58L148 62L139 56.5L125 69L128 78L122 81L116 72L105 68L108 63L117 65L128 53L98 66L92 62Z"
+    fill="#1F6FEB"
+  />
+  <!-- Tulisan Manga' Travel berhuruf serif biru -->
+  <text
+    x="120"
+    y="123"
+    text-anchor="middle"
+    font-family="Georgia, 'Times New Roman', serif"
+    font-size="24"
+    font-weight="700"
+    letter-spacing="0.4"
+    fill="#1E3A8A"
+  >
+    Manga&apos; Travel
+  </text>
+</svg>
+
