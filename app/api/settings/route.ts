@@ -2,16 +2,21 @@ import { revalidatePath } from "next/cache";
 import type { NextRequest } from "next/server";
 import { NextResponse } from "next/server";
 import { z } from "zod";
+import { handleApiError, zodErrorToApiResponse } from "@/lib/api/api-error";
 import { requireApiAdmin, requireApiSession } from "@/lib/auth/api-guards";
 import { getDataRepository } from "@/lib/db/repository";
 
 export async function GET() {
-  const auth = await requireApiSession();
-  if (!auth.ok) return auth.response;
+  try {
+    const auth = await requireApiSession();
+    if (!auth.ok) return auth.response;
 
-  const repo = getDataRepository();
-  const settings = await repo.getSettings();
-  return NextResponse.json({ settings });
+    const repo = getDataRepository();
+    const settings = await repo.getSettings();
+    return NextResponse.json({ settings });
+  } catch (err) {
+    return handleApiError(err, { context: "GET /api/settings" });
+  }
 }
 
 const settingsSchema = z.object({
@@ -51,55 +56,48 @@ const settingsSchema = z.object({
 });
 
 export async function PUT(request: NextRequest) {
-  const auth = await requireApiAdmin(request);
-  if (!auth.ok) return auth.response;
-
-  let body: unknown;
   try {
-    body = await request.json();
-  } catch {
-    return NextResponse.json(
-      { code: "INVALID_JSON", message: "Format permintaan tidak valid." },
-      { status: 400 }
-    );
-  }
+    const auth = await requireApiAdmin(request);
+    if (!auth.ok) return auth.response;
 
-  const parsed = settingsSchema.safeParse(body);
-  if (!parsed.success) {
-    const fields: Record<string, string> = {};
-    for (const issue of parsed.error.issues) {
-      const key = String(issue.path[0] ?? "form");
-      if (!fields[key]) fields[key] = issue.message;
+    let body: unknown;
+    try {
+      body = await request.json();
+    } catch {
+      return NextResponse.json(
+        { code: "INVALID_JSON", message: "Format permintaan tidak valid." },
+        { status: 400 }
+      );
     }
-    return NextResponse.json(
+
+    const parsed = settingsSchema.safeParse(body);
+    if (!parsed.success) {
+      return zodErrorToApiResponse(
+        parsed.error,
+        "Data pengaturan tidak valid."
+      );
+    }
+
+    const repo = getDataRepository();
+    const updated = await repo.updateSettings(
       {
-        code: "VALIDATION_ERROR",
-        message:
-          parsed.error.issues[0]?.message ?? "Data pengaturan tidak valid.",
-        fields,
+        businessName: parsed.data.businessName,
+        logoPath: parsed.data.logoPath,
+        contactPersonName: parsed.data.contactPersonName,
+        contactPersonPhone: parsed.data.contactPersonPhone,
+        address: parsed.data.address?.trim() || null,
+        receiptFooterNote: parsed.data.receiptFooterNote?.trim() || null,
+        showBalanceOnReceipt: parsed.data.showBalanceOnReceipt,
+        showThermalLogo: parsed.data.showThermalLogo,
       },
-      { status: 400 }
+      auth.session.id
     );
+
+    revalidatePath("/settings");
+    revalidatePath("/transactions");
+
+    return NextResponse.json({ settings: updated });
+  } catch (err) {
+    return handleApiError(err, { context: "PUT /api/settings" });
   }
-
-  const repo = getDataRepository();
-  const updated = await repo.updateSettings(
-    {
-      businessName: parsed.data.businessName,
-      logoPath: parsed.data.logoPath,
-      contactPersonName: parsed.data.contactPersonName,
-      contactPersonPhone: parsed.data.contactPersonPhone,
-      address: parsed.data.address?.trim() || null,
-      receiptFooterNote: parsed.data.receiptFooterNote?.trim() || null,
-      showBalanceOnReceipt: parsed.data.showBalanceOnReceipt,
-      showThermalLogo: parsed.data.showThermalLogo,
-    },
-    auth.session.id
-  );
-
-  revalidatePath("/settings");
-  revalidatePath("/transactions");
-
-  return NextResponse.json({ settings: updated });
 }
-

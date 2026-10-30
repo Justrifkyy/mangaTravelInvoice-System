@@ -1,11 +1,15 @@
 "use client";
 
+import * as React from "react";
 import Link from "next/link";
-import { ArrowRight, Printer, Users } from "lucide-react";
+import { ArrowRight, Check, Copy, Printer, Users } from "lucide-react";
+import { AlertBanner } from "@/components/ui/alert-banner";
 import { CaseBadge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Drawer } from "@/components/ui/drawer";
 import { EmptyState } from "@/components/ui/empty-state";
+import { TransactionDetailSkeleton } from "@/components/ui/skeleton";
+import { useToast } from "@/components/ui/toast";
 import { formatDateTimeTable, formatRupiah } from "@/lib/domain/format";
 import type { ReceiptTransactionRecord } from "@/lib/domain/receipt";
 import type { TransactionDetailResult } from "@/lib/services/transaction-service";
@@ -16,6 +20,44 @@ const SOURCE_LABELS: Record<ReceiptTransactionRecord["source"], string> = {
   manual: "Input Manual",
   api: "Integrasi API",
 };
+
+function CopyValueButton({
+  value,
+  label,
+}: {
+  value: string;
+  label: string;
+}) {
+  const toast = useToast();
+  const [copied, setCopied] = React.useState(false);
+
+  async function handleCopy() {
+    try {
+      await navigator.clipboard.writeText(value);
+      setCopied(true);
+      toast.success(`${label} disalin ke papan klip.`);
+      window.setTimeout(() => setCopied(false), 1500);
+    } catch {
+      toast.error(`Gagal menyalin ${label.toLowerCase()}.`);
+    }
+  }
+
+  return (
+    <button
+      type="button"
+      onClick={handleCopy}
+      title={`Salin ${label}`}
+      aria-label={`Salin ${label}`}
+      className="inline-flex h-6 w-6 items-center justify-center rounded-sm text-neutral-400 transition-colors hover:bg-neutral-50 hover:text-primary-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-500 cursor-pointer"
+    >
+      {copied ? (
+        <Check className="h-3.5 w-3.5 text-success" aria-hidden="true" />
+      ) : (
+        <Copy className="h-3.5 w-3.5" aria-hidden="true" />
+      )}
+    </button>
+  );
+}
 
 export function TransactionDetailBody({
   detail,
@@ -64,10 +106,11 @@ export function TransactionDetailBody({
 
       {/* Pasangan Label - Nilai */}
       <dl className="divide-y divide-surface-border text-sm">
-        <div className="flex items-start justify-between gap-4 py-2.5">
+        <div className="flex items-center justify-between gap-4 py-2.5">
           <dt className="text-neutral-500">ID Transaksi</dt>
-          <dd className="font-mono font-semibold text-neutral-900">
-            #{transaction.id}
+          <dd className="inline-flex items-center gap-1.5 font-mono font-semibold text-neutral-900">
+            <span>#{transaction.id}</span>
+            <CopyValueButton value={transaction.id} label="ID Transaksi" />
           </dd>
         </div>
 
@@ -109,17 +152,29 @@ export function TransactionDetailBody({
           </dd>
         </div>
 
-        <div className="flex items-start justify-between gap-4 py-2.5">
+        <div className="flex items-center justify-between gap-4 py-2.5">
           <dt className="text-neutral-500">No. Pesanan</dt>
-          <dd className="font-mono font-medium text-neutral-900">
-            {transaction.orderNumber ?? "—"}
+          <dd className="inline-flex items-center gap-1.5 font-mono font-medium text-neutral-900">
+            <span>{transaction.orderNumber ?? "—"}</span>
+            {transaction.orderNumber && (
+              <CopyValueButton
+                value={transaction.orderNumber}
+                label="No. Pesanan"
+              />
+            )}
           </dd>
         </div>
 
-        <div className="flex items-start justify-between gap-4 py-2.5">
+        <div className="flex items-center justify-between gap-4 py-2.5">
           <dt className="text-neutral-500">Kode Booking</dt>
-          <dd className="font-mono font-medium text-neutral-900">
-            {transaction.bookingCode ?? "—"}
+          <dd className="inline-flex items-center gap-1.5 font-mono font-medium text-neutral-900">
+            <span>{transaction.bookingCode ?? "—"}</span>
+            {transaction.bookingCode && (
+              <CopyValueButton
+                value={transaction.bookingCode}
+                label="Kode Booking"
+              />
+            )}
           </dd>
         </div>
 
@@ -151,9 +206,9 @@ export function TransactionDetailBody({
           </div>
 
           {relatedTransactions.length === 0 ? (
-            <p className="rounded-md border border-warning-bg bg-warning-bg px-3 py-2 text-xs text-warning-text">
+            <AlertBanner variant="warning">
               Belum ada pasangan transaksi lain untuk nomor pesanan ini.
-            </p>
+            </AlertBanner>
           ) : (
             <ul className="space-y-2">
               {relatedTransactions.map((rel) => {
@@ -279,6 +334,7 @@ export interface TransactionDetailDrawerProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   detail: TransactionDetailResult | null;
+  isLoading?: boolean;
   notFoundId?: string | null;
   onSelectRelated: (relatedId: string) => void;
 }
@@ -287,6 +343,7 @@ export function TransactionDetailDrawer({
   open,
   onOpenChange,
   detail,
+  isLoading = false,
   notFoundId,
   onSelectRelated,
 }: TransactionDetailDrawerProps) {
@@ -301,12 +358,14 @@ export function TransactionDetailDrawer({
         ) : undefined
       }
       footer={
-        detail ? (
+        detail && !isLoading ? (
           <TransactionDetailFooterActions transaction={detail.transaction} />
         ) : undefined
       }
     >
-      {detail ? (
+      {isLoading ? (
+        <TransactionDetailSkeleton />
+      ) : detail ? (
         <TransactionDetailBody
           detail={detail}
           onSelectRelated={onSelectRelated}
@@ -321,4 +380,3 @@ export function TransactionDetailDrawer({
     </Drawer>
   );
 }
-

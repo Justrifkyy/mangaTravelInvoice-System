@@ -3,16 +3,12 @@
 import * as React from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import {
-  AlertCircle,
-  AlertTriangle,
-  ArrowLeft,
-  Calculator,
-  Sparkles,
-} from "lucide-react";
+import { ArrowLeft, Calculator, Loader2, Sparkles } from "lucide-react";
+import { AlertBanner } from "@/components/ui/alert-banner";
 import { CaseBadge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { useToast } from "@/components/ui/toast";
+import { apiFetch } from "@/lib/client/api-client";
 import type { AppAgentRecord, ManualBalancePreview } from "@/lib/db/types";
 import { getKnownTransactionCase, TRANSACTION_CASES } from "@/lib/domain/cases";
 import { extractTransactionRefs } from "@/lib/domain/extraction";
@@ -57,6 +53,9 @@ export function ManualTransactionForm({
     key: string;
     data: ManualBalancePreview;
   } | null>(null);
+  const [previewFailedKey, setPreviewFailedKey] = React.useState<string | null>(
+    null
+  );
 
   const selectedAgent =
     activeAgents.find((a) => a.id === agentId) ?? null;
@@ -86,38 +85,53 @@ export function ManualTransactionForm({
     !extractedRefs.orderNumber;
 
   const previewRequestKey = `${agentId}|${transactionAt}|${caseValue}|${validAmount.toString()}`;
+  const isPreviewResolved =
+    serverPreviewState?.key === previewRequestKey ||
+    previewFailedKey === previewRequestKey;
+  const isPreviewLoading =
+    Boolean(agentId && transactionAt) && !isPreviewResolved;
 
   React.useEffect(() => {
     if (!agentId || !transactionAt) return;
-    let cancelled = false;
+    const abortCtrl = new AbortController();
 
     const timer = window.setTimeout(async () => {
-      try {
-        const res = await fetch("/api/transactions/preview-balance", {
+      const res = await apiFetch<{ preview?: ManualBalancePreview }>(
+        "/api/transactions/preview-balance",
+        {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
+          body: {
             agentId,
             transactionAt,
             case: caseValue,
             amount: validAmount.toString(),
-          }),
-        });
-        if (!res.ok || cancelled) return;
-        const json = (await res.json()) as { preview?: ManualBalancePreview };
-        if (!cancelled && json.preview) {
-          setServerPreviewState({
-            key: previewRequestKey,
-            data: json.preview,
-          });
+          },
+          signal: abortCtrl.signal,
+          timeoutMs: 10_000,
         }
-      } catch {
-        // Fallback ke perhitungan lokal bila jaringan lambat
+      );
+
+      if (abortCtrl.signal.aborted) return;
+
+      if (!res.ok) {
+        if (res.code !== "ABORTED") {
+          setPreviewFailedKey(previewRequestKey);
+        }
+        return;
+      }
+
+      if (res.data.preview) {
+        setServerPreviewState({
+          key: previewRequestKey,
+          data: res.data.preview,
+        });
+      } else {
+        setPreviewFailedKey(previewRequestKey);
       }
     }, 250);
 
     return () => {
-      cancelled = true;
+      abortCtrl.abort();
       window.clearTimeout(timer);
     };
   }, [agentId, transactionAt, caseValue, validAmount, previewRequestKey]);
@@ -171,48 +185,45 @@ export function ManualTransactionForm({
 
     if (Object.keys(nextErrors).length > 0) {
       setFieldErrors(nextErrors);
+      toast.warning("Periksa kembali kolom yang wajib diisi.");
       return;
     }
 
     setFieldErrors({});
     setIsSubmitting(true);
 
-    try {
-      const res = await fetch("/api/transactions", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          agentId,
-          transactionAt,
-          case: caseValue,
-          amount: parsedAmount!.toString(),
-          description: description.trim(),
-        }),
-      });
+    const res = await apiFetch<{
+      transaction?: { id: string };
+      warnings?: string[];
+    }>("/api/transactions", {
+      method: "POST",
+      body: {
+        agentId,
+        transactionAt,
+        case: caseValue,
+        amount: parsedAmount!.toString(),
+        description: description.trim(),
+      },
+      fallbackErrorMessage: "Gagal menyimpan transaksi. Silakan coba lagi.",
+    });
 
-      const data = (await res.json()) as {
-        message?: string;
-        fields?: Record<string, string>;
-      };
-
-      if (!res.ok) {
-        if (data.fields) {
-          setFieldErrors(data.fields);
-        }
-        setFormError(
-          data.message ?? "Terjadi kesalahan. Silakan coba lagi."
-        );
-        setIsSubmitting(false);
-        return;
+    if (!res.ok) {
+      if (res.fields) {
+        setFieldErrors(res.fields);
       }
-
-      toast.success("Transaksi berhasil disimpan.");
-      router.push("/transactions");
-      router.refresh();
-    } catch {
-      setFormError("Terjadi kesalahan. Silakan coba lagi.");
+      setFormError(res.message);
+      toast.error(res.message);
       setIsSubmitting(false);
+      return;
     }
+
+    toast.success("Transaksi berhasil disimpan.", {
+      description: activePreview?.isBackdated
+        ? `Saldo pada ${activePreview.affectedSubsequentCount} transaksi berikutnya telah dihitung ulang.`
+        : undefined,
+    });
+    router.push("/transactions");
+    router.refresh();
   }
 
   return (
@@ -244,17 +255,13 @@ export function ManualTransactionForm({
           </div>
 
           {activeAgents.length === 0 && (
-            <div
-              role="alert"
-              className="rounded-md border border-warning-bg bg-warning-bg px-3.5 py-2.5 text-xs font-medium text-warning-text"
-            >
-              Belum ada agen aktif. Tambahkan atau aktifkan agen terlebih dahulu
-              di menu{" "}
+            <AlertBanner variant="warning" title="Belum ada agen aktif">
+              Tambahkan atau aktifkan agen terlebih dahulu di menu{" "}
               <Link href="/admin/agents" className="underline font-semibold">
                 Agen
               </Link>
               .
-            </div>
+            </AlertBanner>
           )}
 
           {/* 1. Agen */}
@@ -267,6 +274,7 @@ export function ManualTransactionForm({
             </label>
             <select
               id="manual-agent"
+              disabled={isSubmitting}
               value={agentId}
               onChange={(e) => {
                 setAgentId(e.target.value);
@@ -277,7 +285,7 @@ export function ManualTransactionForm({
                 fieldErrors.agentId ? "manual-agent-error" : undefined
               }
               className={cn(
-                "h-10 w-full rounded-md border bg-neutral-0 px-3 text-sm text-neutral-900 focus:outline-none focus:ring-2 focus:ring-primary-500",
+                "h-10 w-full rounded-md border bg-neutral-0 px-3 text-sm text-neutral-900 focus:outline-none focus:ring-2 focus:ring-primary-500 disabled:bg-neutral-50",
                 fieldErrors.agentId ? "border-danger" : "border-neutral-200"
               )}
             >
@@ -314,6 +322,7 @@ export function ManualTransactionForm({
               id="manual-datetime"
               type="datetime-local"
               step={1}
+              disabled={isSubmitting}
               value={transactionAt}
               onChange={(e) => {
                 setTransactionAt(e.target.value);
@@ -324,7 +333,7 @@ export function ManualTransactionForm({
                 fieldErrors.transactionAt ? "manual-datetime-error" : undefined
               }
               className={cn(
-                "tabular-nums h-10 w-full rounded-md border bg-neutral-0 px-3 text-sm text-neutral-900 focus:outline-none focus:ring-2 focus:ring-primary-500",
+                "tabular-nums h-10 w-full rounded-md border bg-neutral-0 px-3 text-sm text-neutral-900 focus:outline-none focus:ring-2 focus:ring-primary-500 disabled:bg-neutral-50",
                 fieldErrors.transactionAt
                   ? "border-danger"
                   : "border-neutral-200"
@@ -351,6 +360,7 @@ export function ManualTransactionForm({
             </label>
             <select
               id="manual-case"
+              disabled={isSubmitting}
               value={caseValue}
               onChange={(e) => {
                 setCaseValue(e.target.value);
@@ -361,13 +371,17 @@ export function ManualTransactionForm({
                 fieldErrors.case ? "manual-case-error" : undefined
               }
               className={cn(
-                "h-10 w-full rounded-md border bg-neutral-0 px-3 text-sm text-neutral-900 focus:outline-none focus:ring-2 focus:ring-primary-500",
+                "h-10 w-full rounded-md border bg-neutral-0 px-3 text-sm text-neutral-900 focus:outline-none focus:ring-2 focus:ring-primary-500 disabled:bg-neutral-50",
                 fieldErrors.case ? "border-danger" : "border-neutral-200"
               )}
             >
               {TRANSACTION_CASES.map((item) => (
                 <option key={item.value} value={item.value}>
-                  {item.label} ({item.side === "debit" ? "Debet / Uang Keluar" : "Kredit / Uang Masuk"})
+                  {item.label} (
+                  {item.side === "debit"
+                    ? "Debet / Uang Keluar"
+                    : "Kredit / Uang Masuk"}
+                  )
                 </option>
               ))}
             </select>
@@ -394,6 +408,7 @@ export function ManualTransactionForm({
               id="manual-amount"
               type="text"
               inputMode="numeric"
+              disabled={isSubmitting}
               value={amountRaw}
               onChange={(e) => {
                 setAmountRaw(e.target.value);
@@ -402,10 +417,12 @@ export function ManualTransactionForm({
               placeholder="Contoh: 2117756 atau 2.117.756"
               aria-invalid={Boolean(fieldErrors.amount)}
               aria-describedby={
-                fieldErrors.amount ? "manual-amount-error" : "manual-amount-hint"
+                fieldErrors.amount
+                  ? "manual-amount-error"
+                  : "manual-amount-hint"
               }
               className={cn(
-                "tabular-nums h-10 w-full rounded-md border bg-neutral-0 px-3 text-sm text-neutral-900 placeholder:text-neutral-400 focus:outline-none focus:ring-2 focus:ring-primary-500",
+                "tabular-nums h-10 w-full rounded-md border bg-neutral-0 px-3 text-sm text-neutral-900 placeholder:text-neutral-400 focus:outline-none focus:ring-2 focus:ring-primary-500 disabled:bg-neutral-50",
                 fieldErrors.amount ? "border-danger" : "border-neutral-200"
               )}
             />
@@ -418,7 +435,10 @@ export function ManualTransactionForm({
                 {fieldErrors.amount}
               </p>
             ) : (
-              <p id="manual-amount-hint" className="mt-1 text-xs text-neutral-500">
+              <p
+                id="manual-amount-hint"
+                className="mt-1 text-xs text-neutral-500"
+              >
                 {validAmount > 0n ? (
                   <>
                     Dicatat sebagai{" "}
@@ -451,6 +471,7 @@ export function ManualTransactionForm({
             <textarea
               id="manual-description"
               rows={3}
+              disabled={isSubmitting}
               value={description}
               onChange={(e) => {
                 setDescription(e.target.value);
@@ -464,7 +485,7 @@ export function ManualTransactionForm({
                   : undefined
               }
               className={cn(
-                "w-full rounded-md border bg-neutral-0 p-3 text-sm text-neutral-900 placeholder:text-neutral-400 focus:outline-none focus:ring-2 focus:ring-primary-500",
+                "w-full rounded-md border bg-neutral-0 p-3 text-sm text-neutral-900 placeholder:text-neutral-400 focus:outline-none focus:ring-2 focus:ring-primary-500 disabled:bg-neutral-50",
                 fieldErrors.description ? "border-danger" : "border-neutral-200"
               )}
             />
@@ -480,16 +501,12 @@ export function ManualTransactionForm({
           </div>
 
           {formError && (
-            <div
-              role="alert"
-              className="flex items-start gap-2.5 rounded-md border border-debit-bg bg-debit-bg px-3.5 py-2.5 text-xs font-medium text-debit-text"
+            <AlertBanner
+              variant="error"
+              onDismiss={() => setFormError(null)}
             >
-              <AlertCircle
-                className="mt-0.5 h-4 w-4 shrink-0"
-                aria-hidden="true"
-              />
-              <span>{formError}</span>
-            </div>
+              {formError}
+            </AlertBanner>
           )}
 
           <div className="flex items-center justify-end gap-3 border-t border-surface-border pt-4">
@@ -523,11 +540,30 @@ export function ManualTransactionForm({
                   Pratinjau Saldo Hasil
                 </h3>
               </div>
-              <CaseBadge caseValue={caseValue} />
+              <div className="flex items-center gap-2">
+                {isPreviewLoading && (
+                  <span
+                    className="inline-flex items-center gap-1 text-[11px] font-medium text-neutral-500"
+                    aria-live="polite"
+                  >
+                    <Loader2
+                      className="h-3 w-3 animate-spin text-primary-600"
+                      aria-hidden="true"
+                    />
+                    <span>Menghitung...</span>
+                  </span>
+                )}
+                <CaseBadge caseValue={caseValue} />
+              </div>
             </div>
 
             {activePreview ? (
-              <dl className="space-y-3 text-sm">
+              <dl
+                className={cn(
+                  "space-y-3 text-sm transition-opacity",
+                  isPreviewLoading && "opacity-75"
+                )}
+              >
                 <div className="flex items-center justify-between gap-3">
                   <dt className="text-neutral-500">Agen</dt>
                   <dd className="font-semibold text-neutral-900 text-right">
@@ -579,18 +615,18 @@ export function ManualTransactionForm({
                 </div>
 
                 {activePreview.isBackdated && (
-                  <div className="flex items-start gap-2 rounded-md border border-info-bg bg-info-bg p-3 text-xs text-info">
-                    <AlertTriangle
-                      className="mt-0.5 h-4 w-4 shrink-0"
-                      aria-hidden="true"
-                    />
-                    <span>
-                      Transaksi berwaktu mundur (backdated): sistem otomatis
-                      menghitung ulang saldo pada{" "}
-                      <strong>{activePreview.affectedSubsequentCount}</strong>{" "}
-                      transaksi setelah waktu ini.
-                    </span>
-                  </div>
+                  <AlertBanner variant="info" title="Transaksi Berwaktu Mundur">
+                    Sistem otomatis menghitung ulang saldo berjalan pada{" "}
+                    <strong>{activePreview.affectedSubsequentCount}</strong>{" "}
+                    transaksi setelah waktu ini.
+                  </AlertBanner>
+                )}
+
+                {previewFailedKey === previewRequestKey && (
+                  <AlertBanner variant="warning">
+                    Menggunakan estimasi saldo lokal sementara karena server
+                    belum merespons.
+                  </AlertBanner>
                 )}
               </dl>
             ) : (
@@ -628,17 +664,11 @@ export function ManualTransactionForm({
             </dl>
 
             {missingOrderWarning && (
-              <p className="flex items-start gap-2 rounded-md border border-warning-bg bg-warning-bg px-3 py-2 text-xs text-warning-text">
-                <AlertTriangle
-                  className="mt-0.5 h-3.5 w-3.5 shrink-0"
-                  aria-hidden="true"
-                />
-                <span>
-                  Pola <code>No. Pesanan &lt;angka&gt;</code> belum terdeteksi.
-                  Transaksi tetap dapat disimpan tetapi tidak akan tergabung
-                  ke Struk Grup.
-                </span>
-              </p>
+              <AlertBanner variant="warning">
+                Pola <code>No. Pesanan &lt;angka&gt;</code> belum terdeteksi.
+                Transaksi tetap dapat disimpan tetapi tidak akan tergabung ke
+                Struk Grup.
+              </AlertBanner>
             )}
           </div>
         </aside>

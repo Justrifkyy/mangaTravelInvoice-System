@@ -6,7 +6,7 @@ import { AppShellSkeleton } from "@/components/layout/app-shell-skeleton";
 import { ReceiptWorkspace } from "@/components/receipts/receipt-workspace";
 import { Button } from "@/components/ui/button";
 import { EmptyState } from "@/components/ui/empty-state";
-import { Skeleton } from "@/components/ui/skeleton";
+import { ReceiptPageSkeleton } from "@/components/ui/skeleton";
 import { requireSessionUser } from "@/lib/auth/guards";
 import type { ReceiptMode, ReceiptPaperSize } from "@/lib/domain/receipt";
 import {
@@ -21,10 +21,7 @@ export default function TransactionReceiptPage(
     <Suspense
       fallback={
         <AppShellSkeleton pageTitle="Cetak Struk">
-          <div className="grid grid-cols-1 gap-6 lg:grid-cols-12">
-            <Skeleton className="h-80 rounded-lg lg:col-span-4" />
-            <Skeleton className="h-[480px] rounded-lg lg:col-span-8" />
-          </div>
+          <ReceiptPageSkeleton />
         </AppShellSkeleton>
       }
     >

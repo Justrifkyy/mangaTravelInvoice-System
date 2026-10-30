@@ -1,7 +1,7 @@
 import { Suspense } from "react";
 import { redirect } from "next/navigation";
 import { LoginForm } from "@/components/auth/login-form";
-import { Skeleton } from "@/components/ui/skeleton";
+import { LoginCardSkeleton } from "@/components/ui/skeleton";
 import { getOptionalSessionUser } from "@/lib/auth/guards";
 import { getDataRepository } from "@/lib/db/repository";
 
@@ -19,17 +19,7 @@ export default function LoginPage(props: PageProps<"/login">) {
       />
 
       <div className="relative z-10 flex w-full justify-center">
-        <Suspense
-          fallback={
-            <div className="w-full max-w-[400px] rounded-lg border border-surface-border bg-surface-card p-8 shadow-card space-y-5">
-              <Skeleton className="mx-auto h-14 w-40" />
-              <Skeleton className="mx-auto h-7 w-24" />
-              <Skeleton className="h-10 w-full" />
-              <Skeleton className="h-10 w-full" />
-              <Skeleton className="h-10 w-full" />
-            </div>
-          }
-        >
+        <Suspense fallback={<LoginCardSkeleton />}>
           <LoginDynamicContent searchParamsPromise={props.searchParams} />
         </Suspense>
       </div>

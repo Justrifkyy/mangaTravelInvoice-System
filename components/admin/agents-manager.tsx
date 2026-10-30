@@ -2,21 +2,18 @@
 
 import * as React from "react";
 import { useRouter } from "next/navigation";
-import {
-  AlertCircle,
-  Lock,
-  Pencil,
-  Plus,
-  Power,
-  Search,
-} from "lucide-react";
+import { Lock, Pencil, Plus, Power, RefreshCw, Search } from "lucide-react";
+import { AlertBanner } from "@/components/ui/alert-banner";
 import { ActiveStatusBadge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { EmptyState } from "@/components/ui/empty-state";
 import { Modal } from "@/components/ui/modal";
+import { IndeterminateProgressBar } from "@/components/ui/skeleton";
 import { useToast } from "@/components/ui/toast";
+import { apiFetch } from "@/lib/client/api-client";
 import type { AppAgentRecord } from "@/lib/db/types";
 import { formatRupiah } from "@/lib/domain/format";
+import { parseRupiahToBigInt } from "@/lib/domain/money";
 import { cn } from "@/lib/utils";
 
 export interface AgentsManagerProps {
@@ -26,6 +23,7 @@ export interface AgentsManagerProps {
 export function AgentsManager({ initialAgents }: AgentsManagerProps) {
   const router = useRouter();
   const toast = useToast();
+  const [isRefreshing, startRefreshTransition] = React.useTransition();
 
   const [agents, setAgents] = React.useState<AppAgentRecord[]>(initialAgents);
   const [prevInitial, setPrevInitial] = React.useState(initialAgents);
@@ -53,46 +51,44 @@ export function AgentsManager({ initialAgents }: AgentsManagerProps) {
     );
   }, [agents, search]);
 
+  function handleRefreshList() {
+    startRefreshTransition(() => {
+      router.refresh();
+    });
+    toast.info("Daftar agen diperbarui.");
+  }
+
   async function handleConfirmToggleActive(agent: AppAgentRecord) {
     if (isToggling) return;
     setIsToggling(true);
     const nextActive = !agent.isActive;
 
-    try {
-      const res = await fetch("/api/admin/agents", {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          id: agent.id,
-          isActive: nextActive,
-        }),
-      });
-      const data = (await res.json()) as {
-        agent?: AppAgentRecord;
-        message?: string;
-      };
+    const res = await apiFetch<{ agent?: AppAgentRecord }>("/api/admin/agents", {
+      method: "PATCH",
+      body: {
+        id: agent.id,
+        isActive: nextActive,
+      },
+    });
 
-      if (!res.ok || !data.agent) {
-        toast.error(data.message ?? "Terjadi kesalahan. Silakan coba lagi.");
-        setIsToggling(false);
-        return;
-      }
-
-      setAgents((prev) =>
-        prev.map((a) => (a.id === data.agent!.id ? data.agent! : a))
-      );
-      toast.success(
-        nextActive
-          ? `Agen ${data.agent.code} diaktifkan.`
-          : `Agen ${data.agent.code} dinonaktifkan.`
-      );
-      setModalMode({ type: "closed" });
+    if (!res.ok || !res.data.agent) {
+      toast.error(!res.ok ? res.message : "Gagal memperbarui status agen.");
       setIsToggling(false);
-      router.refresh();
-    } catch {
-      toast.error("Terjadi kesalahan. Silakan coba lagi.");
-      setIsToggling(false);
+      return;
     }
+
+    const updatedAgent = res.data.agent;
+    setAgents((prev) =>
+      prev.map((a) => (a.id === updatedAgent.id ? updatedAgent : a))
+    );
+    toast.success(
+      nextActive
+        ? `Agen ${updatedAgent.code} diaktifkan.`
+        : `Agen ${updatedAgent.code} dinonaktifkan.`
+    );
+    setModalMode({ type: "closed" });
+    setIsToggling(false);
+    router.refresh();
   }
 
   return (
@@ -114,14 +110,32 @@ export function AgentsManager({ initialAgents }: AgentsManagerProps) {
           />
         </div>
 
-        <Button
-          type="button"
-          variant="primary"
-          onClick={() => setModalMode({ type: "create" })}
-        >
-          <Plus className="h-4 w-4" aria-hidden="true" />
-          Tambah Agen
-        </Button>
+        <div className="flex items-center gap-2.5">
+          <Button
+            type="button"
+            variant="secondary"
+            disabled={isRefreshing}
+            onClick={handleRefreshList}
+          >
+            <RefreshCw
+              className={cn(
+                "h-4 w-4",
+                isRefreshing && "animate-spin text-primary-600"
+              )}
+              aria-hidden="true"
+            />
+            <span className="hidden sm:inline">Muat Ulang</span>
+          </Button>
+
+          <Button
+            type="button"
+            variant="primary"
+            onClick={() => setModalMode({ type: "create" })}
+          >
+            <Plus className="h-4 w-4" aria-hidden="true" />
+            Tambah Agen
+          </Button>
+        </div>
       </div>
 
       {/* Tabel Agen */}
@@ -136,6 +150,9 @@ export function AgentsManager({ initialAgents }: AgentsManagerProps) {
         />
       ) : (
         <div className="overflow-hidden rounded-lg border border-surface-border bg-surface-card shadow-card">
+          {isRefreshing && (
+            <IndeterminateProgressBar label="Memperbarui daftar agen..." />
+          )}
           <div className="overflow-x-auto">
             <table className="w-full border-collapse text-left text-sm">
               <thead className="border-b border-surface-border bg-surface-table-header">
@@ -166,7 +183,12 @@ export function AgentsManager({ initialAgents }: AgentsManagerProps) {
                   </th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-surface-border">
+              <tbody
+                className={cn(
+                  "divide-y divide-surface-border transition-opacity",
+                  isRefreshing && "opacity-65"
+                )}
+              >
                 {filteredAgents.map((agent) => {
                   const currentBal = BigInt(agent.currentBalance);
                   return (
@@ -366,48 +388,64 @@ function AgentFormInner({
     e.preventDefault();
     setErrorMsg(null);
     setFieldErrors({});
-    setIsSaving(true);
 
-    try {
-      const isNew = !editingAgent;
-      const res = await fetch("/api/admin/agents", {
-        method: isNew ? "POST" : "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(
-          isNew
-            ? {
-                code: code.trim().toUpperCase(),
-                name: name.trim(),
-                openingBalance: openingBalance.trim() || "0",
-              }
-            : {
-                id: editingAgent.id,
-                code: isCodeLocked ? undefined : code.trim().toUpperCase(),
-                name: name.trim(),
-              }
-        ),
-      });
+    const isNew = !editingAgent;
+    const nextErrors: Record<string, string> = {};
 
-      const data = (await res.json()) as {
-        agent?: AppAgentRecord;
-        message?: string;
-        fields?: Record<string, string>;
-      };
-
-      if (!res.ok || !data.agent) {
-        if (data.fields) setFieldErrors(data.fields);
-        setErrorMsg(
-          data.message ?? "Terjadi kesalahan. Silakan coba lagi."
-        );
-        setIsSaving(false);
-        return;
+    if (!isCodeLocked) {
+      const trimmedCode = code.trim().toUpperCase();
+      if (trimmedCode.length < 2) {
+        nextErrors.code = "Kode agen minimal 2 karakter.";
+      } else if (!/^[A-Za-z0-9_-]+$/.test(trimmedCode)) {
+        nextErrors.code =
+          "Kode agen hanya boleh berisi huruf, angka, tanda hubung (-), atau garis bawah (_).";
       }
-
-      onSaved(data.agent, isNew);
-    } catch {
-      setErrorMsg("Terjadi kesalahan. Silakan coba lagi.");
-      setIsSaving(false);
     }
+
+    if (!name.trim()) {
+      nextErrors.name = "Nama agen wajib diisi.";
+    }
+
+    if (isNew && openingBalance.trim() !== "") {
+      const parsedBal = parseRupiahToBigInt(openingBalance, {
+        allowNegative: true,
+        emptyAsZero: true,
+      });
+      if (parsedBal === null) {
+        nextErrors.openingBalance =
+          "Saldo awal harus berupa angka bulat Rupiah yang valid.";
+      }
+    }
+
+    if (Object.keys(nextErrors).length > 0) {
+      setFieldErrors(nextErrors);
+      return;
+    }
+
+    setIsSaving(true);
+    const res = await apiFetch<{ agent?: AppAgentRecord }>("/api/admin/agents", {
+      method: isNew ? "POST" : "PATCH",
+      body: isNew
+        ? {
+            code: code.trim().toUpperCase(),
+            name: name.trim(),
+            openingBalance: openingBalance.trim() || "0",
+          }
+        : {
+            id: editingAgent.id,
+            code: isCodeLocked ? undefined : code.trim().toUpperCase(),
+            name: name.trim(),
+          },
+    });
+
+    if (!res.ok || !res.data.agent) {
+      if (!res.ok && res.fields) setFieldErrors(res.fields);
+      setErrorMsg(!res.ok ? res.message : "Gagal menyimpan data agen.");
+      setIsSaving(false);
+      return;
+    }
+
+    onSaved(res.data.agent, isNew);
   }
 
   return (
@@ -424,8 +462,13 @@ function AgentFormInner({
             id="agent-code-input"
             type="text"
             value={code}
-            disabled={isCodeLocked}
-            onChange={(e) => setCode(e.target.value.toUpperCase())}
+            disabled={isCodeLocked || isSaving}
+            onChange={(e) => {
+              setCode(e.target.value.toUpperCase());
+              if (fieldErrors.code) {
+                setFieldErrors((prev) => ({ ...prev, code: "" }));
+              }
+            }}
             placeholder="Contoh: JKT-37287"
             aria-invalid={Boolean(fieldErrors.code)}
             aria-describedby={
@@ -461,7 +504,11 @@ function AgentFormInner({
           </p>
         )}
         {fieldErrors.code && (
-          <p id="agent-code-error" role="alert" className="mt-1 text-xs text-danger">
+          <p
+            id="agent-code-error"
+            role="alert"
+            className="mt-1 text-xs text-danger"
+          >
             {fieldErrors.code}
           </p>
         )}
@@ -477,8 +524,14 @@ function AgentFormInner({
         <input
           id="agent-name-input"
           type="text"
+          disabled={isSaving}
           value={name}
-          onChange={(e) => setName(e.target.value)}
+          onChange={(e) => {
+            setName(e.target.value);
+            if (fieldErrors.name) {
+              setFieldErrors((prev) => ({ ...prev, name: "" }));
+            }
+          }}
           placeholder="Contoh: Manga' Travel Jakarta"
           aria-invalid={Boolean(fieldErrors.name)}
           aria-describedby={fieldErrors.name ? "agent-name-error" : undefined}
@@ -488,7 +541,11 @@ function AgentFormInner({
           )}
         />
         {fieldErrors.name && (
-          <p id="agent-name-error" role="alert" className="mt-1 text-xs text-danger">
+          <p
+            id="agent-name-error"
+            role="alert"
+            className="mt-1 text-xs text-danger"
+          >
             {fieldErrors.name}
           </p>
         )}
@@ -506,8 +563,14 @@ function AgentFormInner({
             id="agent-opening-balance"
             type="text"
             inputMode="numeric"
+            disabled={isSaving}
             value={openingBalance}
-            onChange={(e) => setOpeningBalance(e.target.value)}
+            onChange={(e) => {
+              setOpeningBalance(e.target.value);
+              if (fieldErrors.openingBalance) {
+                setFieldErrors((prev) => ({ ...prev, openingBalance: "" }));
+              }
+            }}
             placeholder="0"
             aria-invalid={Boolean(fieldErrors.openingBalance)}
             className={cn(
@@ -515,21 +578,23 @@ function AgentFormInner({
               fieldErrors.openingBalance ? "border-danger" : "border-neutral-200"
             )}
           />
-          <p className="mt-1 text-xs text-neutral-500">
-            Biarkan 0 jika saldo awal akan diturunkan otomatis saat impor Excel
-            pertama.
-          </p>
+          {fieldErrors.openingBalance ? (
+            <p role="alert" className="mt-1 text-xs text-danger">
+              {fieldErrors.openingBalance}
+            </p>
+          ) : (
+            <p className="mt-1 text-xs text-neutral-500">
+              Biarkan 0 jika saldo awal akan diturunkan otomatis saat impor
+              Excel pertama.
+            </p>
+          )}
         </div>
       )}
 
       {errorMsg && (
-        <div
-          role="alert"
-          className="flex items-start gap-2 rounded-md border border-debit-bg bg-debit-bg px-3 py-2.5 text-xs font-medium text-debit-text"
-        >
-          <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
-          <span>{errorMsg}</span>
-        </div>
+        <AlertBanner variant="error" onDismiss={() => setErrorMsg(null)}>
+          {errorMsg}
+        </AlertBanner>
       )}
 
       <div className="flex items-center justify-end gap-2.5 border-t border-surface-border pt-4">
@@ -548,4 +613,3 @@ function AgentFormInner({
     </form>
   );
 }
-

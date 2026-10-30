@@ -4,7 +4,6 @@ import * as React from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
-  AlertCircle,
   AlertTriangle,
   CheckCircle2,
   ChevronRight,
@@ -13,13 +12,17 @@ import {
   FileSpreadsheet,
   FileUp,
   Loader2,
+  RefreshCw,
   XCircle,
 } from "lucide-react";
+import { AlertBanner } from "@/components/ui/alert-banner";
 import { CaseBadge, ImportBatchStatusBadge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { EmptyState } from "@/components/ui/empty-state";
 import { Modal } from "@/components/ui/modal";
+import { IndeterminateProgressBar } from "@/components/ui/skeleton";
 import { useToast } from "@/components/ui/toast";
+import { apiFetch } from "@/lib/client/api-client";
 import type {
   ImportBatchDetailRecord,
   ImportBatchSummaryRecord,
@@ -32,6 +35,9 @@ import { formatDateTimeTable, formatRupiah } from "@/lib/domain/format";
 import { cn } from "@/lib/utils";
 
 type ImportStep = 1 | 2 | 3;
+
+const ALLOWED_FILE_EXTENSIONS = [".xls", ".xlsx", ".csv"];
+const CLIENT_MAX_IMPORT_BYTES = 10 * 1024 * 1024; // 10 MB
 
 export interface ImportWorkspaceProps {
   initialHistory: ImportBatchSummaryRecord[];
@@ -64,57 +70,99 @@ export function ImportWorkspace({ initialHistory }: ImportWorkspaceProps) {
 
   const [history, setHistory] =
     React.useState<ImportBatchSummaryRecord[]>(initialHistory);
+  const [isRefreshingHistory, setIsRefreshingHistory] = React.useState(false);
 
-  async function refreshHistory() {
-    try {
-      const res = await fetch("/api/imports");
-      if (res.ok) {
-        const data = (await res.json()) as {
-          batches?: ImportBatchSummaryRecord[];
-        };
-        if (data.batches) setHistory(data.batches);
+  async function refreshHistory(manual = false) {
+    if (manual) setIsRefreshingHistory(true);
+    const res = await apiFetch<{ batches?: ImportBatchSummaryRecord[] }>(
+      "/api/imports"
+    );
+    if (res.ok && res.data.batches) {
+      setHistory(res.data.batches);
+      if (manual) {
+        toast.info("Riwayat impor diperbarui.");
       }
-    } catch {
-      // Abaikan jika gagal memuat ulang riwayat
+    } else if (manual && !res.ok) {
+      toast.error(res.message);
     }
+    if (manual) setIsRefreshingHistory(false);
   }
 
   async function processSelectedFile(file: File) {
     setUploadError(null);
+
+    const lowerName = file.name.toLowerCase();
+    if (!ALLOWED_FILE_EXTENSIONS.some((ext) => lowerName.endsWith(ext))) {
+      const msg =
+        "Format berkas tidak didukung. Gunakan file dengan ekstensi .xls, .xlsx, atau .csv.";
+      setUploadError(msg);
+      toast.error(msg);
+      return;
+    }
+
+    if (file.size === 0) {
+      const msg = "Berkas yang dipilih kosong (0 byte).";
+      setUploadError(msg);
+      toast.error(msg);
+      return;
+    }
+
+    if (file.size > CLIENT_MAX_IMPORT_BYTES) {
+      const msg = "Ukuran file melebihi batas maksimum 10 MB.";
+      setUploadError(msg);
+      toast.error(msg);
+      return;
+    }
+
     setIsUploading(true);
+    const formData = new FormData();
+    formData.append("file", file);
 
-    try {
-      const formData = new FormData();
-      formData.append("file", file);
-
-      const res = await fetch("/api/imports/preview", {
+    const res = await apiFetch<{ batch?: ImportBatchDetailRecord }>(
+      "/api/imports/preview",
+      {
         method: "POST",
         body: formData,
-      });
-
-      const data = (await res.json()) as {
-        batch?: ImportBatchDetailRecord;
-        message?: string;
-      };
-
-      if (!res.ok || !data.batch) {
-        setUploadError(
-          data.message ??
-            "File tidak dapat dibaca. Simpan ulang sebagai .xlsx atau .csv lalu coba lagi."
-        );
-        setIsUploading(false);
-        return;
+        timeoutMs: 45_000,
+        fallbackErrorMessage:
+          "File tidak dapat dibaca. Simpan ulang sebagai .xlsx atau .csv lalu coba lagi.",
       }
+    );
 
-      setPreviewBatch(data.batch);
-      setStatusFilter("all");
-      setStep(2);
+    if (!res.ok || !res.data.batch) {
+      const msg = !res.ok
+        ? res.message
+        : "File tidak dapat dibaca. Simpan ulang sebagai .xlsx atau .csv lalu coba lagi.";
+      setUploadError(msg);
+      toast.error(msg);
       setIsUploading(false);
-      void refreshHistory();
-    } catch {
-      setUploadError("Terjadi kesalahan. Silakan coba lagi.");
-      setIsUploading(false);
+      return;
     }
+
+    const batch = res.data.batch;
+    setPreviewBatch(batch);
+    setStatusFilter("all");
+    setStep(2);
+    setIsUploading(false);
+
+    if (batch.validRows === 0) {
+      toast.warning("Tidak ada baris baru yang valid untuk diimpor.", {
+        description: `${batch.duplicateRows} duplikat, ${batch.errorRows} error dari total ${batch.totalRows} baris.`,
+      });
+    } else if (batch.errorRows > 0 || batch.warningRows > 0) {
+      toast.warning(
+        `Pratinjau selesai: ${batch.validRows} dari ${batch.totalRows} baris siap diimpor.`,
+        {
+          description: `${batch.warningRows} peringatan, ${batch.errorRows} error, ${batch.duplicateRows} duplikat.`,
+        }
+      );
+    } else {
+      toast.success(
+        `Pratinjau selesai: ${batch.validRows} baris siap diimpor.`
+      );
+    }
+
+    void refreshHistory(false);
   }
 
   function handleFileInputChange(e: React.ChangeEvent<HTMLInputElement>) {
@@ -139,58 +187,63 @@ export function ImportWorkspace({ initialHistory }: ImportWorkspaceProps) {
     if (!previewBatch || isCommitting) return;
     setIsCommitting(true);
 
-    try {
-      const res = await fetch(`/api/imports/${previewBatch.id}/commit`, {
-        method: "POST",
-      });
-      const data = (await res.json()) as {
-        importedCount?: number;
-        duplicateSkippedCount?: number;
-        message?: string;
-      };
+    const res = await apiFetch<{
+      importedCount?: number;
+      duplicateSkippedCount?: number;
+    }>(`/api/imports/${previewBatch.id}/commit`, {
+      method: "POST",
+      timeoutMs: 45_000,
+      fallbackErrorMessage: "Gagal menyimpan batch impor. Silakan coba lagi.",
+    });
 
-      if (!res.ok || data.importedCount === undefined) {
-        toast.error(data.message ?? "Terjadi kesalahan. Silakan coba lagi.");
-        setIsCommitting(false);
-        setConfirmModalOpen(false);
-        return;
-      }
-
-      const importedCount = data.importedCount;
-      const duplicateSkippedCount = data.duplicateSkippedCount ?? 0;
-
-      setCommitResult({
-        fileName: previewBatch.fileName,
-        importedCount,
-        duplicateSkippedCount,
-      });
-      setConfirmModalOpen(false);
-      setIsCommitting(false);
-      setStep(3);
-      toast.success(`${importedCount} transaksi berhasil diimpor.`);
-      void refreshHistory();
-      router.refresh();
-    } catch {
-      toast.error("Terjadi kesalahan. Silakan coba lagi.");
+    if (!res.ok || res.data.importedCount === undefined) {
+      toast.error(!res.ok ? res.message : "Gagal menyimpan batch impor.");
       setIsCommitting(false);
       setConfirmModalOpen(false);
+      return;
     }
+
+    const importedCount = res.data.importedCount;
+    const duplicateSkippedCount = res.data.duplicateSkippedCount ?? 0;
+
+    setCommitResult({
+      fileName: previewBatch.fileName,
+      importedCount,
+      duplicateSkippedCount,
+    });
+    setConfirmModalOpen(false);
+    setIsCommitting(false);
+    setStep(3);
+    toast.success(`${importedCount} transaksi berhasil diimpor.`, {
+      description:
+        duplicateSkippedCount > 0
+          ? `${duplicateSkippedCount} baris duplikat dilewati otomatis.`
+          : `Sumber berkas: ${previewBatch.fileName}`,
+    });
+    void refreshHistory(false);
+    router.refresh();
   }
 
   async function handleCancelPreview() {
     if (!previewBatch || isCancelling) return;
     setIsCancelling(true);
-    try {
-      await fetch(`/api/imports/${previewBatch.id}/cancel`, {
-        method: "POST",
-      });
-    } catch {
-      // Lanjutkan reset tampilan
+
+    const res = await apiFetch(`/api/imports/${previewBatch.id}/cancel`, {
+      method: "POST",
+    });
+
+    if (!res.ok) {
+      toast.warning(
+        "Batch pratinjau ditutup, namun status pembatalan gagal diperbarui di server."
+      );
+    } else {
+      toast.info("Pratinjau impor dibatalkan.");
     }
+
     setPreviewBatch(null);
     setStep(1);
     setIsCancelling(false);
-    void refreshHistory();
+    void refreshHistory(false);
   }
 
   function handleDownloadTemplateCsv() {
@@ -209,6 +262,7 @@ export function ImportWorkspace({ initialHistory }: ImportWorkspaceProps) {
     link.download = "CONTOH-LAPORAN-CASHFLOW.csv";
     link.click();
     URL.revokeObjectURL(url);
+    toast.info("Contoh berkas CSV berhasil diunduh.");
   }
 
   const filteredPreviewRows = React.useMemo(() => {
@@ -273,7 +327,14 @@ export function ImportWorkspace({ initialHistory }: ImportWorkspaceProps) {
 
       {/* LANGKAH 1: UNGGAH FILE */}
       {step === 1 && (
-        <section className="rounded-lg border border-surface-border bg-surface-card p-6 shadow-card space-y-5">
+        <section className="relative overflow-hidden rounded-lg border border-surface-border bg-surface-card p-6 shadow-card space-y-5">
+          {isUploading && (
+            <IndeterminateProgressBar
+              label="Membaca dan memvalidasi berkas..."
+              className="absolute inset-x-0 top-0"
+            />
+          )}
+
           <div className="flex flex-col justify-between gap-3 sm:flex-row sm:items-center">
             <div>
               <h2 className="text-lg font-semibold text-neutral-900">
@@ -289,6 +350,7 @@ export function ImportWorkspace({ initialHistory }: ImportWorkspaceProps) {
               type="button"
               variant="secondary"
               size="sm"
+              disabled={isUploading}
               onClick={handleDownloadTemplateCsv}
             >
               <Download className="h-3.5 w-3.5" aria-hidden="true" />
@@ -363,16 +425,13 @@ export function ImportWorkspace({ initialHistory }: ImportWorkspaceProps) {
           </div>
 
           {uploadError && (
-            <div
-              role="alert"
-              className="flex items-start gap-2.5 rounded-md border border-debit-bg bg-debit-bg px-4 py-3 text-xs font-medium text-debit-text"
+            <AlertBanner
+              variant="error"
+              title="Unggahan Ditolak"
+              onDismiss={() => setUploadError(null)}
             >
-              <AlertCircle
-                className="mt-0.5 h-4 w-4 shrink-0"
-                aria-hidden="true"
-              />
-              <span>{uploadError}</span>
-            </div>
+              {uploadError}
+            </AlertBanner>
           )}
         </section>
       )}
@@ -380,7 +439,13 @@ export function ImportWorkspace({ initialHistory }: ImportWorkspaceProps) {
       {/* LANGKAH 2: PRATINJAU & VALIDASI */}
       {step === 2 && previewBatch && (
         <section className="space-y-5">
-          <div className="flex flex-col justify-between gap-4 rounded-lg border border-surface-border bg-surface-card p-5 shadow-card sm:flex-row sm:items-center">
+          <div className="relative overflow-hidden flex flex-col justify-between gap-4 rounded-lg border border-surface-border bg-surface-card p-5 shadow-card sm:flex-row sm:items-center">
+            {(isCommitting || isCancelling) && (
+              <IndeterminateProgressBar
+                label="Memproses batch impor..."
+                className="absolute inset-x-0 top-0"
+              />
+            )}
             <div className="min-w-0">
               <div className="flex items-center gap-2">
                 <FileSpreadsheet
@@ -403,6 +468,7 @@ export function ImportWorkspace({ initialHistory }: ImportWorkspaceProps) {
                 type="button"
                 variant="secondary"
                 isLoading={isCancelling}
+                disabled={isCommitting}
                 onClick={handleCancelPreview}
               >
                 Batal
@@ -410,13 +476,25 @@ export function ImportWorkspace({ initialHistory }: ImportWorkspaceProps) {
               <Button
                 type="button"
                 variant="primary"
-                disabled={previewBatch.validRows === 0}
+                disabled={previewBatch.validRows === 0 || isCancelling}
                 onClick={() => setConfirmModalOpen(true)}
               >
                 Impor {previewBatch.validRows} baris valid
               </Button>
             </div>
           </div>
+
+          {previewBatch.validRows === 0 && (
+            <AlertBanner
+              variant="warning"
+              title="Tidak ada baris yang dapat diimpor"
+            >
+              Seluruh baris pada berkas ini berstatus duplikat (
+              {previewBatch.duplicateRows} baris) atau memiliki galat validasi (
+              {previewBatch.errorRows} baris). Klik <strong>Batal</strong> untuk
+              mengunggah berkas lain.
+            </AlertBanner>
+          )}
 
           {/* 5 Kartu Ringkasan Kecil: Total, Valid, Peringatan, Error, Duplikat */}
           <div className="grid grid-cols-2 gap-3 sm:grid-cols-5">
@@ -635,13 +713,32 @@ export function ImportWorkspace({ initialHistory }: ImportWorkspaceProps) {
 
       {/* RIWAYAT IMPOR (F-08 > history) */}
       <section className="space-y-3">
-        <div>
-          <h2 className="text-base font-semibold text-neutral-900">
-            Riwayat Impor
-          </h2>
-          <p className="text-xs text-neutral-500">
-            Catatan seluruh batch unggahan laporan cashflow.
-          </p>
+        <div className="flex items-center justify-between gap-3">
+          <div>
+            <h2 className="text-base font-semibold text-neutral-900">
+              Riwayat Impor
+            </h2>
+            <p className="text-xs text-neutral-500">
+              Catatan seluruh batch unggahan laporan cashflow.
+            </p>
+          </div>
+
+          <Button
+            type="button"
+            variant="secondary"
+            size="sm"
+            disabled={isRefreshingHistory}
+            onClick={() => void refreshHistory(true)}
+          >
+            <RefreshCw
+              className={cn(
+                "h-3.5 w-3.5",
+                isRefreshingHistory && "animate-spin text-primary-600"
+              )}
+              aria-hidden="true"
+            />
+            Muat Ulang
+          </Button>
         </div>
 
         {history.length === 0 ? (
@@ -652,6 +749,9 @@ export function ImportWorkspace({ initialHistory }: ImportWorkspaceProps) {
           />
         ) : (
           <div className="overflow-hidden rounded-lg border border-surface-border bg-surface-card shadow-card">
+            {isRefreshingHistory && (
+              <IndeterminateProgressBar label="Memperbarui riwayat impor..." />
+            )}
             <div className="overflow-x-auto">
               <table className="w-full border-collapse text-left text-sm">
                 <thead className="border-b border-surface-border bg-surface-table-header">
@@ -679,7 +779,12 @@ export function ImportWorkspace({ initialHistory }: ImportWorkspaceProps) {
                     </th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-surface-border">
+                <tbody
+                  className={cn(
+                    "divide-y divide-surface-border transition-opacity",
+                    isRefreshingHistory && "opacity-65"
+                  )}
+                >
                   {history.map((b) => (
                     <tr key={b.id} className="hover:bg-surface-table-hover">
                       <td className="px-4 py-3">
@@ -819,4 +924,3 @@ function PreviewRowItem({ row }: { row: ParsedImportPreviewRow }) {
     </tr>
   );
 }
-

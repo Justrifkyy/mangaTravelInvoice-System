@@ -2,17 +2,22 @@ import { revalidatePath } from "next/cache";
 import type { NextRequest } from "next/server";
 import { NextResponse } from "next/server";
 import { z } from "zod";
+import { handleApiError, zodErrorToApiResponse } from "@/lib/api/api-error";
 import { requireApiAdmin } from "@/lib/auth/api-guards";
 import { getDataRepository } from "@/lib/db/repository";
 import { parseRupiahToBigInt } from "@/lib/domain/money";
 
 export async function GET() {
-  const auth = await requireApiAdmin();
-  if (!auth.ok) return auth.response;
+  try {
+    const auth = await requireApiAdmin();
+    if (!auth.ok) return auth.response;
 
-  const repo = getDataRepository();
-  const agents = await repo.listAgents();
-  return NextResponse.json({ agents });
+    const repo = getDataRepository();
+    const agents = await repo.listAgents();
+    return NextResponse.json({ agents });
+  } catch (err) {
+    return handleApiError(err, { context: "GET /api/admin/agents" });
+  }
 }
 
 const createAgentSchema = z.object({
@@ -34,59 +39,48 @@ const createAgentSchema = z.object({
 });
 
 export async function POST(request: NextRequest) {
-  const auth = await requireApiAdmin(request);
-  if (!auth.ok) return auth.response;
-
-  let body: unknown;
   try {
-    body = await request.json();
-  } catch {
-    return NextResponse.json(
-      { code: "INVALID_JSON", message: "Format permintaan tidak valid." },
-      { status: 400 }
-    );
-  }
+    const auth = await requireApiAdmin(request);
+    if (!auth.ok) return auth.response;
 
-  const parsed = createAgentSchema.safeParse(body);
-  if (!parsed.success) {
-    const fields: Record<string, string> = {};
-    for (const issue of parsed.error.issues) {
-      const key = String(issue.path[0] ?? "form");
-      if (!fields[key]) fields[key] = issue.message;
+    let body: unknown;
+    try {
+      body = await request.json();
+    } catch {
+      return NextResponse.json(
+        { code: "INVALID_JSON", message: "Format permintaan tidak valid." },
+        { status: 400 }
+      );
     }
-    return NextResponse.json(
-      {
-        code: "VALIDATION_ERROR",
-        message: parsed.error.issues[0]?.message ?? "Data agen tidak valid.",
-        fields,
-      },
-      { status: 400 }
-    );
-  }
 
-  const openingBig =
-    parsed.data.openingBalance !== undefined &&
-    String(parsed.data.openingBalance).trim() !== ""
-      ? parseRupiahToBigInt(parsed.data.openingBalance, {
-          allowNegative: true,
-          emptyAsZero: true,
-        })
-      : 0n;
+    const parsed = createAgentSchema.safeParse(body);
+    if (!parsed.success) {
+      return zodErrorToApiResponse(parsed.error, "Data agen tidak valid.");
+    }
 
-  if (openingBig === null) {
-    return NextResponse.json(
-      {
-        code: "VALIDATION_ERROR",
-        message: "Saldo awal harus berupa angka bulat Rupiah yang valid.",
-        fields: {
-          openingBalance: "Saldo awal harus berupa angka bulat Rupiah yang valid.",
+    const openingBig =
+      parsed.data.openingBalance !== undefined &&
+      String(parsed.data.openingBalance).trim() !== ""
+        ? parseRupiahToBigInt(parsed.data.openingBalance, {
+            allowNegative: true,
+            emptyAsZero: true,
+          })
+        : 0n;
+
+    if (openingBig === null) {
+      return NextResponse.json(
+        {
+          code: "VALIDATION_ERROR",
+          message: "Saldo awal harus berupa angka bulat Rupiah yang valid.",
+          fields: {
+            openingBalance:
+              "Saldo awal harus berupa angka bulat Rupiah yang valid.",
+          },
         },
-      },
-      { status: 400 }
-    );
-  }
+        { status: 400 }
+      );
+    }
 
-  try {
     const repo = getDataRepository();
     const agent = await repo.createAgent({
       code: parsed.data.code.toUpperCase(),
@@ -102,14 +96,10 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json({ agent }, { status: 201 });
   } catch (err) {
-    const message =
-      err instanceof Error
-        ? err.message
-        : "Terjadi kesalahan. Silakan coba lagi.";
-    return NextResponse.json(
-      { code: "CREATE_AGENT_FAILED", message },
-      { status: 400 }
-    );
+    return handleApiError(err, {
+      context: "POST /api/admin/agents",
+      defaultCode: "CREATE_AGENT_FAILED",
+    });
   }
 }
 
@@ -135,37 +125,25 @@ const updateAgentSchema = z.object({
 });
 
 export async function PATCH(request: NextRequest) {
-  const auth = await requireApiAdmin(request);
-  if (!auth.ok) return auth.response;
-
-  let body: unknown;
   try {
-    body = await request.json();
-  } catch {
-    return NextResponse.json(
-      { code: "INVALID_JSON", message: "Format permintaan tidak valid." },
-      { status: 400 }
-    );
-  }
+    const auth = await requireApiAdmin(request);
+    if (!auth.ok) return auth.response;
 
-  const parsed = updateAgentSchema.safeParse(body);
-  if (!parsed.success) {
-    const fields: Record<string, string> = {};
-    for (const issue of parsed.error.issues) {
-      const key = String(issue.path[0] ?? "form");
-      if (!fields[key]) fields[key] = issue.message;
+    let body: unknown;
+    try {
+      body = await request.json();
+    } catch {
+      return NextResponse.json(
+        { code: "INVALID_JSON", message: "Format permintaan tidak valid." },
+        { status: 400 }
+      );
     }
-    return NextResponse.json(
-      {
-        code: "VALIDATION_ERROR",
-        message: parsed.error.issues[0]?.message ?? "Data agen tidak valid.",
-        fields,
-      },
-      { status: 400 }
-    );
-  }
 
-  try {
+    const parsed = updateAgentSchema.safeParse(body);
+    if (!parsed.success) {
+      return zodErrorToApiResponse(parsed.error, "Data agen tidak valid.");
+    }
+
     const repo = getDataRepository();
     const agent = await repo.updateAgent({
       id: parsed.data.id,
@@ -182,14 +160,9 @@ export async function PATCH(request: NextRequest) {
 
     return NextResponse.json({ agent });
   } catch (err) {
-    const message =
-      err instanceof Error
-        ? err.message
-        : "Terjadi kesalahan. Silakan coba lagi.";
-    return NextResponse.json(
-      { code: "UPDATE_AGENT_FAILED", message },
-      { status: 400 }
-    );
+    return handleApiError(err, {
+      context: "PATCH /api/admin/agents",
+      defaultCode: "UPDATE_AGENT_FAILED",
+    });
   }
 }
-

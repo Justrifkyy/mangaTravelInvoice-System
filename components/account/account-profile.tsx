@@ -1,11 +1,13 @@
 "use client";
 
 import * as React from "react";
-import { AlertCircle, Eye, EyeOff, KeyRound, ShieldCheck } from "lucide-react";
+import { Check, Eye, EyeOff, KeyRound, ShieldCheck } from "lucide-react";
 import type { SafeUserDto } from "@/app/api/admin/users/route";
+import { AlertBanner } from "@/components/ui/alert-banner";
 import { ActiveStatusBadge, RoleBadge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { useToast } from "@/components/ui/toast";
+import { apiFetch } from "@/lib/client/api-client";
 import type { AppAgentRecord } from "@/lib/db/types";
 import { formatDateTimeTable, formatRupiah } from "@/lib/domain/format";
 import { cn } from "@/lib/utils";
@@ -32,6 +34,11 @@ export function AccountProfile({ user, linkedAgent }: AccountProfileProps) {
   const [formError, setFormError] = React.useState<string | null>(null);
   const [isSaving, setIsSaving] = React.useState(false);
 
+  const passwordsMatchLive =
+    confirmPassword.length > 0 &&
+    newPassword.length >= 6 &&
+    newPassword === confirmPassword;
+
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     setFormError(null);
@@ -43,8 +50,13 @@ export function AccountProfile({ user, linkedAgent }: AccountProfileProps) {
     }
     if (newPassword.length < 6) {
       nextErrors.newPassword = "Password baru minimal 6 karakter.";
+    } else if (currentPassword && newPassword === currentPassword) {
+      nextErrors.newPassword =
+        "Password baru harus berbeda dari password saat ini.";
     }
-    if (newPassword !== confirmPassword) {
+    if (!confirmPassword) {
+      nextErrors.confirmPassword = "Konfirmasi password baru wajib diisi.";
+    } else if (newPassword !== confirmPassword) {
       nextErrors.confirmPassword = "Konfirmasi password baru tidak sama.";
     }
 
@@ -54,40 +66,29 @@ export function AccountProfile({ user, linkedAgent }: AccountProfileProps) {
     }
 
     setIsSaving(true);
-    try {
-      const res = await fetch("/api/account/password", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          currentPassword,
-          newPassword,
-          confirmPassword,
-        }),
-      });
+    const res = await apiFetch("/api/account/password", {
+      method: "POST",
+      body: {
+        currentPassword,
+        newPassword,
+        confirmPassword,
+      },
+      fallbackErrorMessage: "Gagal memperbarui password. Silakan coba lagi.",
+    });
 
-      const data = (await res.json()) as {
-        message?: string;
-        fields?: Record<string, string>;
-      };
-
-      if (!res.ok) {
-        if (data.fields) setFieldErrors(data.fields);
-        setFormError(
-          data.message ?? "Terjadi kesalahan. Silakan coba lagi."
-        );
-        setIsSaving(false);
-        return;
-      }
-
-      setCurrentPassword("");
-      setNewPassword("");
-      setConfirmPassword("");
+    if (!res.ok) {
+      if (res.fields) setFieldErrors(res.fields);
+      setFormError(res.message);
+      toast.error(res.message);
       setIsSaving(false);
-      toast.success("Password Anda berhasil diperbarui.");
-    } catch {
-      setFormError("Terjadi kesalahan. Silakan coba lagi.");
-      setIsSaving(false);
+      return;
     }
+
+    setCurrentPassword("");
+    setNewPassword("");
+    setConfirmPassword("");
+    setIsSaving(false);
+    toast.success("Password Anda berhasil diperbarui.");
   }
 
   return (
@@ -193,6 +194,7 @@ export function AccountProfile({ user, linkedAgent }: AccountProfileProps) {
                 id="acc-current-password"
                 type={showCurrent ? "text" : "password"}
                 autoComplete="current-password"
+                disabled={isSaving}
                 value={currentPassword}
                 onChange={(e) => {
                   setCurrentPassword(e.target.value);
@@ -200,7 +202,7 @@ export function AccountProfile({ user, linkedAgent }: AccountProfileProps) {
                 }}
                 aria-invalid={Boolean(fieldErrors.currentPassword)}
                 className={cn(
-                  "h-10 w-full rounded-md border bg-neutral-0 pl-3 pr-10 text-sm text-neutral-900 focus:outline-none focus:ring-2 focus:ring-primary-500",
+                  "h-10 w-full rounded-md border bg-neutral-0 pl-3 pr-10 text-sm text-neutral-900 focus:outline-none focus:ring-2 focus:ring-primary-500 disabled:bg-neutral-50",
                   fieldErrors.currentPassword
                     ? "border-danger"
                     : "border-neutral-200"
@@ -240,6 +242,7 @@ export function AccountProfile({ user, linkedAgent }: AccountProfileProps) {
                 id="acc-new-password"
                 type={showNew ? "text" : "password"}
                 autoComplete="new-password"
+                disabled={isSaving}
                 value={newPassword}
                 onChange={(e) => {
                   setNewPassword(e.target.value);
@@ -248,7 +251,7 @@ export function AccountProfile({ user, linkedAgent }: AccountProfileProps) {
                 placeholder="Minimal 6 karakter"
                 aria-invalid={Boolean(fieldErrors.newPassword)}
                 className={cn(
-                  "h-10 w-full rounded-md border bg-neutral-0 pl-3 pr-10 text-sm text-neutral-900 placeholder:text-neutral-400 focus:outline-none focus:ring-2 focus:ring-primary-500",
+                  "h-10 w-full rounded-md border bg-neutral-0 pl-3 pr-10 text-sm text-neutral-900 placeholder:text-neutral-400 focus:outline-none focus:ring-2 focus:ring-primary-500 disabled:bg-neutral-50",
                   fieldErrors.newPassword
                     ? "border-danger"
                     : "border-neutral-200"
@@ -269,10 +272,18 @@ export function AccountProfile({ user, linkedAgent }: AccountProfileProps) {
                 )}
               </button>
             </div>
-            {fieldErrors.newPassword && (
+            {fieldErrors.newPassword ? (
               <p role="alert" className="mt-1 text-xs text-danger">
                 {fieldErrors.newPassword}
               </p>
+            ) : (
+              newPassword.length > 0 &&
+              newPassword.length < 6 && (
+                <p className="mt-1 text-xs text-neutral-500">
+                  Kurang {6 - newPassword.length} karakter lagi (minimal 6
+                  karakter).
+                </p>
+              )
             )}
           </div>
 
@@ -288,6 +299,7 @@ export function AccountProfile({ user, linkedAgent }: AccountProfileProps) {
                 id="acc-confirm-password"
                 type={showConfirm ? "text" : "password"}
                 autoComplete="new-password"
+                disabled={isSaving}
                 value={confirmPassword}
                 onChange={(e) => {
                   setConfirmPassword(e.target.value);
@@ -296,7 +308,7 @@ export function AccountProfile({ user, linkedAgent }: AccountProfileProps) {
                 placeholder="Ketik ulang password baru"
                 aria-invalid={Boolean(fieldErrors.confirmPassword)}
                 className={cn(
-                  "h-10 w-full rounded-md border bg-neutral-0 pl-3 pr-10 text-sm text-neutral-900 placeholder:text-neutral-400 focus:outline-none focus:ring-2 focus:ring-primary-500",
+                  "h-10 w-full rounded-md border bg-neutral-0 pl-3 pr-10 text-sm text-neutral-900 placeholder:text-neutral-400 focus:outline-none focus:ring-2 focus:ring-primary-500 disabled:bg-neutral-50",
                   fieldErrors.confirmPassword
                     ? "border-danger"
                     : "border-neutral-200"
@@ -317,24 +329,24 @@ export function AccountProfile({ user, linkedAgent }: AccountProfileProps) {
                 )}
               </button>
             </div>
-            {fieldErrors.confirmPassword && (
+            {fieldErrors.confirmPassword ? (
               <p role="alert" className="mt-1 text-xs text-danger">
                 {fieldErrors.confirmPassword}
               </p>
+            ) : (
+              passwordsMatchLive && (
+                <p className="mt-1 inline-flex items-center gap-1 text-xs font-medium text-credit-text">
+                  <Check className="h-3.5 w-3.5" aria-hidden="true" />
+                  <span>Konfirmasi password sesuai.</span>
+                </p>
+              )
             )}
           </div>
 
           {formError && (
-            <div
-              role="alert"
-              className="flex items-start gap-2 rounded-md border border-debit-bg bg-debit-bg px-3.5 py-2.5 text-xs font-medium text-debit-text"
-            >
-              <AlertCircle
-                className="mt-0.5 h-4 w-4 shrink-0"
-                aria-hidden="true"
-              />
-              <span>{formError}</span>
-            </div>
+            <AlertBanner variant="error" onDismiss={() => setFormError(null)}>
+              {formError}
+            </AlertBanner>
           )}
 
           <div className="pt-2">
@@ -347,4 +359,3 @@ export function AccountProfile({ user, linkedAgent }: AccountProfileProps) {
     </div>
   );
 }
-

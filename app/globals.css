@@ -173,6 +173,19 @@ body {
   font-variant-numeric: tabular-nums;
 }
 
+@keyframes indeterminate-slide {
+  0% {
+    transform: translateX(-100%);
+  }
+  100% {
+    transform: translateX(300%);
+  }
+}
+
+.animate-indeterminate {
+  animation: indeterminate-slide 1.25s cubic-bezier(0.4, 0, 0.2, 1) infinite;
+}
+
 /* Hormati prefers-reduced-motion sesuai design-spec.json > tokens.motion.rules */
 @media (prefers-reduced-motion: reduce) {
   *,

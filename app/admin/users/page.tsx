@@ -3,7 +3,7 @@ import { toSafeUserDto } from "@/app/api/admin/users/route";
 import { UsersManager } from "@/components/admin/users-manager";
 import { AppShell } from "@/components/layout/app-shell";
 import { AppShellSkeleton } from "@/components/layout/app-shell-skeleton";
-import { Skeleton } from "@/components/ui/skeleton";
+import { AdminTablePageSkeleton } from "@/components/ui/skeleton";
 import { requireAdminSessionUser } from "@/lib/auth/guards";
 import { getDataRepository } from "@/lib/db/repository";
 
@@ -12,10 +12,7 @@ export default function AdminUsersPage() {
     <Suspense
       fallback={
         <AppShellSkeleton pageTitle="Kelola Pengguna">
-          <div className="space-y-4">
-            <Skeleton className="h-10 w-full rounded-lg" />
-            <Skeleton className="h-64 w-full rounded-lg" />
-          </div>
+          <AdminTablePageSkeleton />
         </AppShellSkeleton>
       }
     >

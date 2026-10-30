@@ -3,9 +3,13 @@
 import * as React from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { AlertTriangle, ArrowLeft, Printer } from "lucide-react";
+import { ArrowLeft, Check, Link2, Loader2, Printer } from "lucide-react";
 import { BrandLogo } from "@/components/brand/brand-logo";
+import { AlertBanner } from "@/components/ui/alert-banner";
 import { Button } from "@/components/ui/button";
+import { IndeterminateProgressBar } from "@/components/ui/skeleton";
+import { useToast } from "@/components/ui/toast";
+import { apiFetch } from "@/lib/client/api-client";
 import {
   formatDateTimeReceipt,
   formatDateTimeTable,
@@ -59,6 +63,9 @@ export function ReceiptWorkspace({
 }: ReceiptWorkspaceProps) {
   const router = useRouter();
   const pathname = usePathname();
+  const toast = useToast();
+  const [isModePending, startModeTransition] = React.useTransition();
+  const [linkCopied, setLinkCopied] = React.useState(false);
 
   const storedSize = React.useSyncExternalStore(
     subscribeReceiptSize,
@@ -93,20 +100,41 @@ export function ReceiptWorkspace({
   }
 
   function handleSelectMode(nextMode: ReceiptMode) {
-    if (nextMode === activeMode) return;
+    if (nextMode === activeMode || isModePending) return;
     const params = new URLSearchParams();
     params.set("mode", nextMode);
     params.set("size", size);
-    router.push(`${pathname}?${params.toString()}`);
+    startModeTransition(() => {
+      router.push(`${pathname}?${params.toString()}`);
+    });
   }
 
   function handlePrint() {
     // Catat aksi cetak di audit_logs secara asinkron (F-06 > audit)
-    void fetch(
-      `/api/receipts?transactionId=${encodeURIComponent(transactionId)}&mode=${encodeURIComponent(activeMode)}`,
-      { method: "GET" }
-    ).catch(() => undefined);
+    void apiFetch("/api/receipts", {
+      method: "POST",
+      body: {
+        transactionId,
+        mode: activeMode,
+        size,
+      },
+      redirectOnUnauthorized: false,
+    });
     window.print();
+  }
+
+  async function handleCopyReceiptLink() {
+    try {
+      const url = new URL(window.location.href);
+      url.searchParams.set("mode", activeMode);
+      url.searchParams.set("size", size);
+      await navigator.clipboard.writeText(url.toString());
+      setLinkCopied(true);
+      toast.success("Tautan struk disalin ke papan klip.");
+      window.setTimeout(() => setLinkCopied(false), 1800);
+    } catch {
+      toast.error("Gagal menyalin tautan struk.");
+    }
   }
 
   const pageCssRule =
@@ -146,27 +174,41 @@ export function ReceiptWorkspace({
               >
                 <button
                   type="button"
+                  disabled={isModePending}
                   onClick={() => handleSelectMode("individual")}
                   className={cn(
-                    "h-9 rounded-sm text-sm font-medium transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-500",
+                    "inline-flex h-9 items-center justify-center gap-1.5 rounded-sm text-sm font-medium transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-500 disabled:opacity-60",
                     activeMode === "individual"
                       ? "bg-neutral-0 text-primary-700 font-semibold shadow-2xs"
                       : "text-neutral-700 hover:text-neutral-900"
                   )}
                 >
-                  Individual
+                  {isModePending && activeMode !== "individual" && (
+                    <Loader2
+                      className="h-3.5 w-3.5 animate-spin text-primary-600"
+                      aria-hidden="true"
+                    />
+                  )}
+                  <span>Individual</span>
                 </button>
                 <button
                   type="button"
+                  disabled={isModePending}
                   onClick={() => handleSelectMode("group")}
                   className={cn(
-                    "h-9 rounded-sm text-sm font-medium transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-500",
+                    "inline-flex h-9 items-center justify-center gap-1.5 rounded-sm text-sm font-medium transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-500 disabled:opacity-60",
                     activeMode === "group"
                       ? "bg-neutral-0 text-primary-700 font-semibold shadow-2xs"
                       : "text-neutral-700 hover:text-neutral-900"
                   )}
                 >
-                  Grup
+                  {isModePending && activeMode !== "group" && (
+                    <Loader2
+                      className="h-3.5 w-3.5 animate-spin text-primary-600"
+                      aria-hidden="true"
+                    />
+                  )}
+                  <span>Grup</span>
                 </button>
               </div>
             ) : (
@@ -225,13 +267,9 @@ export function ReceiptWorkspace({
           )}
 
           {receipt.group?.incompleteNote && (
-            <div className="flex items-start gap-2 rounded-md border border-warning-bg bg-warning-bg p-3 text-xs text-warning-text">
-              <AlertTriangle
-                className="mt-0.5 h-4 w-4 shrink-0"
-                aria-hidden="true"
-              />
-              <span>{receipt.group.incompleteNote}</span>
-            </div>
+            <AlertBanner variant="warning">
+              {receipt.group.incompleteNote}
+            </AlertBanner>
           )}
 
           <div className="flex flex-col gap-2.5 pt-2">
@@ -239,6 +277,7 @@ export function ReceiptWorkspace({
               type="button"
               variant="primary"
               size="lg"
+              disabled={isModePending}
               onClick={handlePrint}
               className="w-full"
             >
@@ -246,10 +285,24 @@ export function ReceiptWorkspace({
               Cetak
             </Button>
 
-            <Button asChild variant="secondary" className="w-full">
+            <Button
+              type="button"
+              variant="secondary"
+              onClick={handleCopyReceiptLink}
+              className="w-full"
+            >
+              {linkCopied ? (
+                <Check className="h-4 w-4 text-success" aria-hidden="true" />
+              ) : (
+                <Link2 className="h-4 w-4" aria-hidden="true" />
+              )}
+              {linkCopied ? "Tautan Tersalin" : "Salin Tautan Struk"}
+            </Button>
+
+            <Button asChild variant="ghost" className="w-full">
               <Link href={`/transactions?detail=${transactionId}`}>
                 <ArrowLeft className="h-4 w-4" aria-hidden="true" />
-                Kembali
+                Kembali ke Transaksi
               </Link>
             </Button>
           </div>
@@ -259,17 +312,32 @@ export function ReceiptWorkspace({
       {/* Kolom Kanan: Kertas Virtual Pratinjau WYSIWYG */}
       <section
         aria-label="Pratinjau struk"
-        className="flex justify-center rounded-lg border border-surface-border bg-neutral-100/70 p-4 sm:p-8 lg:col-span-8 print:block print:border-none print:bg-transparent print:p-0"
+        aria-busy={isModePending}
+        className="relative flex justify-center overflow-hidden rounded-lg border border-surface-border bg-neutral-100/70 p-4 sm:p-8 lg:col-span-8 print:block print:border-none print:bg-transparent print:p-0"
       >
-        {size === "a4" ? (
-          <A4ReceiptTemplate receipt={receipt} />
-        ) : (
-          <ThermalReceiptTemplate
-            receipt={receipt}
-            paperWidth={size}
-            showLogo={showThermalLogo}
+        {isModePending && (
+          <IndeterminateProgressBar
+            label="Memuat mode struk..."
+            className="absolute inset-x-0 top-0"
           />
         )}
+
+        <div
+          className={cn(
+            "w-full flex justify-center transition-opacity print:block",
+            isModePending && "opacity-60"
+          )}
+        >
+          {size === "a4" ? (
+            <A4ReceiptTemplate receipt={receipt} />
+          ) : (
+            <ThermalReceiptTemplate
+              receipt={receipt}
+              paperWidth={size}
+              showLogo={showThermalLogo}
+            />
+          )}
+        </div>
       </section>
     </div>
   );

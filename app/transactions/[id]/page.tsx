@@ -10,7 +10,7 @@ import {
 import { CaseBadge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { EmptyState } from "@/components/ui/empty-state";
-import { Skeleton } from "@/components/ui/skeleton";
+import { Skeleton, TransactionDetailSkeleton } from "@/components/ui/skeleton";
 import { requireSessionUser } from "@/lib/auth/guards";
 import { getTransactionDetailForSession } from "@/lib/services/transaction-service";
 
@@ -22,8 +22,10 @@ export default function TransactionDetailPage(
       fallback={
         <AppShellSkeleton pageTitle="Detail Transaksi">
           <div className="mx-auto max-w-2xl space-y-4">
-            <Skeleton className="h-9 w-40" />
-            <Skeleton className="h-96 w-full rounded-lg" />
+            <Skeleton className="h-8 w-44" />
+            <div className="rounded-lg border border-surface-border bg-surface-card p-6 shadow-card">
+              <TransactionDetailSkeleton />
+            </div>
           </div>
         </AppShellSkeleton>
       }

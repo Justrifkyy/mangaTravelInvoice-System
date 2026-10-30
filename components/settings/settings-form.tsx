@@ -2,10 +2,12 @@
 
 import * as React from "react";
 import { useRouter } from "next/navigation";
-import { AlertCircle, ImagePlus, RotateCcw } from "lucide-react";
+import { ImagePlus, RotateCcw } from "lucide-react";
 import { BrandLogo } from "@/components/brand/brand-logo";
+import { AlertBanner } from "@/components/ui/alert-banner";
 import { Button } from "@/components/ui/button";
 import { useToast } from "@/components/ui/toast";
+import { apiFetch } from "@/lib/client/api-client";
 import type { ReceiptBusinessSettings } from "@/lib/domain/receipt";
 import { cn } from "@/lib/utils";
 
@@ -20,6 +22,9 @@ export function SettingsForm({ initialSettings }: SettingsFormProps) {
   const router = useRouter();
   const toast = useToast();
   const logoInputRef = React.useRef<HTMLInputElement | null>(null);
+
+  const [baseline, setBaseline] =
+    React.useState<ReceiptBusinessSettings>(initialSettings);
 
   const [businessName, setBusinessName] = React.useState(
     initialSettings.businessName
@@ -48,6 +53,31 @@ export function SettingsForm({ initialSettings }: SettingsFormProps) {
   const [formError, setFormError] = React.useState<string | null>(null);
   const [isSaving, setIsSaving] = React.useState(false);
 
+  const hasUnsavedChanges =
+    businessName.trim() !== baseline.businessName ||
+    (logoPath || DEFAULT_LOGO_PATH) !== baseline.logoPath ||
+    contactPersonName.trim() !== baseline.contactPersonName ||
+    contactPersonPhone.trim() !== baseline.contactPersonPhone ||
+    (address.trim() || null) !== (baseline.address ?? null) ||
+    (receiptFooterNote.trim() || null) !==
+      (baseline.receiptFooterNote ?? null) ||
+    showBalanceOnReceipt !== baseline.showBalanceOnReceipt ||
+    showThermalLogo !== baseline.showThermalLogo;
+
+  function handleDiscardChanges() {
+    setBusinessName(baseline.businessName);
+    setLogoPath(baseline.logoPath);
+    setContactPersonName(baseline.contactPersonName);
+    setContactPersonPhone(baseline.contactPersonPhone);
+    setAddress(baseline.address ?? "");
+    setReceiptFooterNote(baseline.receiptFooterNote ?? "");
+    setShowBalanceOnReceipt(baseline.showBalanceOnReceipt);
+    setShowThermalLogo(baseline.showThermalLogo);
+    setFieldErrors({});
+    setFormError(null);
+    toast.info("Perubahan yang belum disimpan dibatalkan.");
+  }
+
   function handleLogoSelect(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
     e.target.value = "";
@@ -60,18 +90,22 @@ export function SettingsForm({ initialSettings }: SettingsFormProps) {
       "image/svg+xml",
     ];
     if (!allowedTypes.includes(file.type)) {
+      const msg = "Format gambar harus PNG, JPEG, WebP, atau SVG.";
       setFieldErrors((prev) => ({
         ...prev,
-        logoPath: "Format gambar harus PNG, JPEG, WebP, atau SVG.",
+        logoPath: msg,
       }));
+      toast.error(msg);
       return;
     }
 
     if (file.size > MAX_LOGO_BYTES) {
+      const msg = "Ukuran file logo maksimum 2 MB.";
       setFieldErrors((prev) => ({
         ...prev,
-        logoPath: "Ukuran file logo maksimum 2 MB.",
+        logoPath: msg,
       }));
+      toast.error(msg);
       return;
     }
 
@@ -80,13 +114,16 @@ export function SettingsForm({ initialSettings }: SettingsFormProps) {
       if (typeof reader.result === "string") {
         setLogoPath(reader.result);
         setFieldErrors((prev) => ({ ...prev, logoPath: "" }));
+        toast.info("Logo baru dimuat ke pratinjau. Klik Simpan untuk menerapkan.");
       }
     };
     reader.onerror = () => {
+      const msg = "Gagal membaca file gambar.";
       setFieldErrors((prev) => ({
         ...prev,
-        logoPath: "Gagal membaca file gambar.",
+        logoPath: msg,
       }));
+      toast.error(msg);
     };
     reader.readAsDataURL(file);
   }
@@ -103,54 +140,49 @@ export function SettingsForm({ initialSettings }: SettingsFormProps) {
     if (!contactPersonName.trim()) {
       nextErrors.contactPersonName = "Nama contact person wajib diisi.";
     }
-    if (!contactPersonPhone.trim()) {
+    if (!contactPersonPhone.trim() || contactPersonPhone.trim().length < 5) {
       nextErrors.contactPersonPhone =
-        "Nomor telepon contact person wajib diisi.";
+        "Nomor telepon contact person wajib diisi (minimal 5 karakter).";
     }
 
     if (Object.keys(nextErrors).length > 0) {
       setFieldErrors(nextErrors);
+      toast.warning("Periksa kembali kolom pengaturan yang wajib diisi.");
       return;
     }
 
     setIsSaving(true);
-    try {
-      const res = await fetch("/api/settings", {
+    const payload: ReceiptBusinessSettings = {
+      businessName: businessName.trim(),
+      logoPath: logoPath || DEFAULT_LOGO_PATH,
+      contactPersonName: contactPersonName.trim(),
+      contactPersonPhone: contactPersonPhone.trim(),
+      address: address.trim() || null,
+      receiptFooterNote: receiptFooterNote.trim() || null,
+      showBalanceOnReceipt,
+      showThermalLogo,
+    };
+
+    const res = await apiFetch<{ settings?: ReceiptBusinessSettings }>(
+      "/api/settings",
+      {
         method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          businessName: businessName.trim(),
-          logoPath: logoPath || DEFAULT_LOGO_PATH,
-          contactPersonName: contactPersonName.trim(),
-          contactPersonPhone: contactPersonPhone.trim(),
-          address: address.trim() || null,
-          receiptFooterNote: receiptFooterNote.trim() || null,
-          showBalanceOnReceipt,
-          showThermalLogo,
-        }),
-      });
-
-      const data = (await res.json()) as {
-        message?: string;
-        fields?: Record<string, string>;
-      };
-
-      if (!res.ok) {
-        if (data.fields) setFieldErrors(data.fields);
-        setFormError(
-          data.message ?? "Terjadi kesalahan. Silakan coba lagi."
-        );
-        setIsSaving(false);
-        return;
+        body: payload as unknown as Record<string, unknown>,
       }
+    );
 
+    if (!res.ok) {
+      if (res.fields) setFieldErrors(res.fields);
+      setFormError(res.message);
+      toast.error(res.message);
       setIsSaving(false);
-      toast.success("Pengaturan berhasil disimpan.");
-      router.refresh();
-    } catch {
-      setFormError("Terjadi kesalahan. Silakan coba lagi.");
-      setIsSaving(false);
+      return;
     }
+
+    setBaseline(res.data.settings ?? payload);
+    setIsSaving(false);
+    toast.success("Pengaturan berhasil disimpan.");
+    router.refresh();
   }
 
   return (
@@ -161,14 +193,21 @@ export function SettingsForm({ initialSettings }: SettingsFormProps) {
         noValidate
         className="w-full max-w-[620px] rounded-lg border border-surface-border bg-surface-card p-6 shadow-card space-y-6"
       >
-        <div>
-          <h2 className="text-lg font-semibold text-neutral-900">
-            Profil Usaha &amp; Kop Struk
-          </h2>
-          <p className="mt-0.5 text-xs text-neutral-500">
-            Informasi di bawah ini ditampilkan pada setiap cetakan struk thermal
-            58mm, 80mm, maupun dokumen A4.
-          </p>
+        <div className="flex flex-wrap items-start justify-between gap-2">
+          <div>
+            <h2 className="text-lg font-semibold text-neutral-900">
+              Profil Usaha &amp; Kop Struk
+            </h2>
+            <p className="mt-0.5 text-xs text-neutral-500">
+              Informasi di bawah ini ditampilkan pada setiap cetakan struk
+              thermal 58mm, 80mm, maupun dokumen A4.
+            </p>
+          </div>
+          {hasUnsavedChanges && (
+            <span className="inline-flex h-6 items-center rounded-full bg-warning-bg px-2.5 text-xs font-medium text-warning-text">
+              Belum disimpan
+            </span>
+          )}
         </div>
 
         {/* Unggah Logo */}
@@ -199,6 +238,7 @@ export function SettingsForm({ initialSettings }: SettingsFormProps) {
                   type="button"
                   variant="secondary"
                   size="sm"
+                  disabled={isSaving}
                   onClick={() => logoInputRef.current?.click()}
                 >
                   <ImagePlus className="h-3.5 w-3.5" aria-hidden="true" />
@@ -209,7 +249,12 @@ export function SettingsForm({ initialSettings }: SettingsFormProps) {
                     type="button"
                     variant="ghost"
                     size="sm"
-                    onClick={() => setLogoPath(DEFAULT_LOGO_PATH)}
+                    disabled={isSaving}
+                    onClick={() => {
+                      setLogoPath(DEFAULT_LOGO_PATH);
+                      setFieldErrors((prev) => ({ ...prev, logoPath: "" }));
+                      toast.info("Logo dikembalikan ke logo bawaan.");
+                    }}
                   >
                     <RotateCcw className="h-3.5 w-3.5" aria-hidden="true" />
                     Logo Bawaan
@@ -240,8 +285,14 @@ export function SettingsForm({ initialSettings }: SettingsFormProps) {
           <input
             id="settings-business-name"
             type="text"
+            disabled={isSaving}
             value={businessName}
-            onChange={(e) => setBusinessName(e.target.value)}
+            onChange={(e) => {
+              setBusinessName(e.target.value);
+              if (fieldErrors.businessName) {
+                setFieldErrors((prev) => ({ ...prev, businessName: "" }));
+              }
+            }}
             aria-invalid={Boolean(fieldErrors.businessName)}
             className={cn(
               "h-10 w-full rounded-md border bg-neutral-0 px-3 text-sm text-neutral-900 focus:outline-none focus:ring-2 focus:ring-primary-500",
@@ -267,8 +318,17 @@ export function SettingsForm({ initialSettings }: SettingsFormProps) {
             <input
               id="settings-cp-name"
               type="text"
+              disabled={isSaving}
               value={contactPersonName}
-              onChange={(e) => setContactPersonName(e.target.value)}
+              onChange={(e) => {
+                setContactPersonName(e.target.value);
+                if (fieldErrors.contactPersonName) {
+                  setFieldErrors((prev) => ({
+                    ...prev,
+                    contactPersonName: "",
+                  }));
+                }
+              }}
               placeholder="Contoh: Layanan Manga' Travel"
               aria-invalid={Boolean(fieldErrors.contactPersonName)}
               className={cn(
@@ -295,8 +355,17 @@ export function SettingsForm({ initialSettings }: SettingsFormProps) {
             <input
               id="settings-cp-phone"
               type="tel"
+              disabled={isSaving}
               value={contactPersonPhone}
-              onChange={(e) => setContactPersonPhone(e.target.value)}
+              onChange={(e) => {
+                setContactPersonPhone(e.target.value);
+                if (fieldErrors.contactPersonPhone) {
+                  setFieldErrors((prev) => ({
+                    ...prev,
+                    contactPersonPhone: "",
+                  }));
+                }
+              }}
               placeholder="Contoh: 0812-0000-0000"
               aria-invalid={Boolean(fieldErrors.contactPersonPhone)}
               className={cn(
@@ -325,6 +394,7 @@ export function SettingsForm({ initialSettings }: SettingsFormProps) {
           <textarea
             id="settings-address"
             rows={2}
+            disabled={isSaving}
             value={address}
             onChange={(e) => setAddress(e.target.value)}
             placeholder="Kosongkan jika alamat tidak ingin ditampilkan pada struk"
@@ -343,6 +413,7 @@ export function SettingsForm({ initialSettings }: SettingsFormProps) {
           <input
             id="settings-footer-note"
             type="text"
+            disabled={isSaving}
             value={receiptFooterNote}
             onChange={(e) => setReceiptFooterNote(e.target.value)}
             placeholder="Contoh: Terima kasih atas kepercayaan Anda."
@@ -369,6 +440,7 @@ export function SettingsForm({ initialSettings }: SettingsFormProps) {
             </div>
             <input
               type="checkbox"
+              disabled={isSaving}
               checked={showBalanceOnReceipt}
               onChange={(e) => setShowBalanceOnReceipt(e.target.checked)}
               className="mt-1 h-4 w-4 shrink-0 rounded-xs accent-primary-600"
@@ -387,6 +459,7 @@ export function SettingsForm({ initialSettings }: SettingsFormProps) {
             </div>
             <input
               type="checkbox"
+              disabled={isSaving}
               checked={showThermalLogo}
               onChange={(e) => setShowThermalLogo(e.target.checked)}
               className="mt-1 h-4 w-4 shrink-0 rounded-xs accent-primary-600"
@@ -395,16 +468,22 @@ export function SettingsForm({ initialSettings }: SettingsFormProps) {
         </section>
 
         {formError && (
-          <div
-            role="alert"
-            className="flex items-start gap-2.5 rounded-md border border-debit-bg bg-debit-bg px-3.5 py-2.5 text-xs font-medium text-debit-text"
-          >
-            <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
-            <span>{formError}</span>
-          </div>
+          <AlertBanner variant="error" onDismiss={() => setFormError(null)}>
+            {formError}
+          </AlertBanner>
         )}
 
-        <div className="flex justify-end border-t border-surface-border pt-4">
+        <div className="flex items-center justify-end gap-2.5 border-t border-surface-border pt-4">
+          {hasUnsavedChanges && (
+            <Button
+              type="button"
+              variant="secondary"
+              disabled={isSaving}
+              onClick={handleDiscardChanges}
+            >
+              Kembalikan
+            </Button>
+          )}
           <Button type="submit" variant="primary" isLoading={isSaving}>
             Simpan
           </Button>
@@ -481,4 +560,3 @@ export function SettingsForm({ initialSettings }: SettingsFormProps) {
     </div>
   );
 }
-

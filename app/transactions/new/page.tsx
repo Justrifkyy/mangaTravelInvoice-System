@@ -3,7 +3,7 @@ import { connection } from "next/server";
 import { AppShell } from "@/components/layout/app-shell";
 import { AppShellSkeleton } from "@/components/layout/app-shell-skeleton";
 import { ManualTransactionForm } from "@/components/transactions/manual-transaction-form";
-import { Skeleton } from "@/components/ui/skeleton";
+import { ManualTransactionPageSkeleton } from "@/components/ui/skeleton";
 import { requireAdminSessionUser } from "@/lib/auth/guards";
 import { getDataRepository } from "@/lib/db/repository";
 import { DEFAULT_APP_TIMEZONE } from "@/lib/domain/format";
@@ -13,10 +13,7 @@ export default function NewTransactionPage() {
     <Suspense
       fallback={
         <AppShellSkeleton pageTitle="Input Manual Transaksi">
-          <div className="flex flex-col gap-6 lg:flex-row">
-            <Skeleton className="h-[520px] w-full max-w-[560px] rounded-lg" />
-            <Skeleton className="h-72 w-full lg:w-[380px] rounded-lg" />
-          </div>
+          <ManualTransactionPageSkeleton />
         </AppShellSkeleton>
       }
     >

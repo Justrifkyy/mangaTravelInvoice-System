@@ -4,7 +4,7 @@ import { toSafeUserDto } from "@/app/api/admin/users/route";
 import { AccountProfile } from "@/components/account/account-profile";
 import { AppShell } from "@/components/layout/app-shell";
 import { AppShellSkeleton } from "@/components/layout/app-shell-skeleton";
-import { Skeleton } from "@/components/ui/skeleton";
+import { AccountPageSkeleton } from "@/components/ui/skeleton";
 import { requireSessionUser } from "@/lib/auth/guards";
 import { getDataRepository } from "@/lib/db/repository";
 
@@ -13,10 +13,7 @@ export default function AccountPage() {
     <Suspense
       fallback={
         <AppShellSkeleton pageTitle="Profil & Keamanan Akun">
-          <div className="grid grid-cols-1 gap-6 lg:grid-cols-12">
-            <Skeleton className="h-80 rounded-lg lg:col-span-5" />
-            <Skeleton className="h-96 rounded-lg lg:col-span-7" />
-          </div>
+          <AccountPageSkeleton />
         </AppShellSkeleton>
       }
     >

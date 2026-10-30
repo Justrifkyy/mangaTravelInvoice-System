@@ -2,6 +2,7 @@ import { revalidatePath } from "next/cache";
 import type { NextRequest } from "next/server";
 import { NextResponse } from "next/server";
 import { z } from "zod";
+import { handleApiError, zodErrorToApiResponse } from "@/lib/api/api-error";
 import { requireApiAdmin, requireApiSession } from "@/lib/auth/api-guards";
 import { getDataRepository } from "@/lib/db/repository";
 import { getKnownTransactionCase } from "@/lib/domain/cases";
@@ -23,29 +24,33 @@ function searchParamsToRecord(
 }
 
 export async function GET(request: NextRequest) {
-  const auth = await requireApiSession();
-  if (!auth.ok) return auth.response;
+  try {
+    const auth = await requireApiSession();
+    if (!auth.ok) return auth.response;
 
-  const parsed = parseTransactionSearchParams(
-    searchParamsToRecord(request.nextUrl.searchParams)
-  );
-
-  if (parsed.validationError) {
-    return NextResponse.json(
-      {
-        code: "INVALID_QUERY",
-        message: parsed.validationError,
-      },
-      { status: 400 }
+    const parsed = parseTransactionSearchParams(
+      searchParamsToRecord(request.nextUrl.searchParams)
     );
-  }
 
-  const result = await queryTransactionsForSession(auth.session, parsed);
-  return NextResponse.json({
-    items: result.items,
-    pagination: result.pagination,
-    emptyReason: result.emptyReason,
-  });
+    if (parsed.validationError) {
+      return NextResponse.json(
+        {
+          code: "INVALID_QUERY",
+          message: parsed.validationError,
+        },
+        { status: 400 }
+      );
+    }
+
+    const result = await queryTransactionsForSession(auth.session, parsed);
+    return NextResponse.json({
+      items: result.items,
+      pagination: result.pagination,
+      emptyReason: result.emptyReason,
+    });
+  } catch (err) {
+    return handleApiError(err, { context: "GET /api/transactions" });
+  }
 }
 
 const createManualTxSchema = z.object({
@@ -66,99 +71,91 @@ export function parseManualTransactionDate(raw: string): Date | null {
 }
 
 export async function POST(request: NextRequest) {
-  const auth = await requireApiAdmin(request);
-  if (!auth.ok) return auth.response;
-
-  let body: unknown;
   try {
-    body = await request.json();
-  } catch {
-    return NextResponse.json(
-      { code: "INVALID_JSON", message: "Format permintaan tidak valid." },
-      { status: 400 }
-    );
-  }
+    const auth = await requireApiAdmin(request);
+    if (!auth.ok) return auth.response;
 
-  const parsed = createManualTxSchema.safeParse(body);
-  if (!parsed.success) {
-    const fields: Record<string, string> = {};
-    for (const issue of parsed.error.issues) {
-      const key = String(issue.path[0] ?? "form");
-      if (!fields[key]) fields[key] = issue.message;
+    let body: unknown;
+    try {
+      body = await request.json();
+    } catch {
+      return NextResponse.json(
+        { code: "INVALID_JSON", message: "Format permintaan tidak valid." },
+        { status: 400 }
+      );
     }
-    return NextResponse.json(
-      {
-        code: "VALIDATION_ERROR",
-        message: parsed.error.issues[0]?.message ?? "Input tidak valid.",
-        fields,
-      },
-      { status: 400 }
-    );
-  }
 
-  const txDate = parseManualTransactionDate(parsed.data.transactionAt);
-  if (!txDate) {
-    return NextResponse.json(
-      {
-        code: "VALIDATION_ERROR",
-        message: "Format tanggal & jam transaksi tidak valid.",
-        fields: { transactionAt: "Format tanggal & jam transaksi tidak valid." },
-      },
-      { status: 400 }
-    );
-  }
+    const parsed = createManualTxSchema.safeParse(body);
+    if (!parsed.success) {
+      return zodErrorToApiResponse(parsed.error, "Input transaksi tidak valid.");
+    }
 
-  const caseMeta = getKnownTransactionCase(parsed.data.case);
-  if (!caseMeta) {
-    return NextResponse.json(
-      {
-        code: "VALIDATION_ERROR",
-        message: "Jenis transaksi (Case) tidak dikenali.",
-        fields: { case: "Jenis transaksi (Case) tidak dikenali." },
-      },
-      { status: 400 }
-    );
-  }
+    const txDate = parseManualTransactionDate(parsed.data.transactionAt);
+    if (!txDate) {
+      return NextResponse.json(
+        {
+          code: "VALIDATION_ERROR",
+          message: "Format tanggal & jam transaksi tidak valid.",
+          fields: {
+            transactionAt: "Format tanggal & jam transaksi tidak valid.",
+          },
+        },
+        { status: 400 }
+      );
+    }
 
-  const amountBig = parseRupiahToBigInt(parsed.data.amount, {
-    allowNegative: false,
-    emptyAsZero: false,
-  });
-  if (amountBig === null || amountBig <= 0n) {
-    return NextResponse.json(
-      {
-        code: "VALIDATION_ERROR",
-        message: "Nominal harus berupa angka bulat positif (> Rp 0).",
-        fields: { amount: "Nominal harus berupa angka bulat positif (> Rp 0)." },
-      },
-      { status: 400 }
-    );
-  }
+    const caseMeta = getKnownTransactionCase(parsed.data.case);
+    if (!caseMeta) {
+      return NextResponse.json(
+        {
+          code: "VALIDATION_ERROR",
+          message: "Jenis transaksi (Case) tidak dikenali.",
+          fields: { case: "Jenis transaksi (Case) tidak dikenali." },
+        },
+        { status: 400 }
+      );
+    }
 
-  const debit = caseMeta.side === "debit" ? amountBig : 0n;
-  const credit = caseMeta.side === "credit" ? amountBig : 0n;
+    const amountBig = parseRupiahToBigInt(parsed.data.amount, {
+      allowNegative: false,
+      emptyAsZero: false,
+    });
+    if (amountBig === null || amountBig <= 0n) {
+      return NextResponse.json(
+        {
+          code: "VALIDATION_ERROR",
+          message: "Nominal harus berupa angka bulat positif (> Rp 0).",
+          fields: {
+            amount: "Nominal harus berupa angka bulat positif (> Rp 0).",
+          },
+        },
+        { status: 400 }
+      );
+    }
 
-  const prepared = validateAndPrepareTransaction({
-    agentId: parsed.data.agentId,
-    transactionAt: txDate,
-    case: caseMeta.value,
-    description: parsed.data.description,
-    debit,
-    credit,
-    source: "manual",
-  });
+    const debit = caseMeta.side === "debit" ? amountBig : 0n;
+    const credit = caseMeta.side === "credit" ? amountBig : 0n;
 
-  if (!prepared.ok) {
-    return NextResponse.json(
-      {
-        code: "VALIDATION_ERROR",
-        message: prepared.errors[0] ?? "Transaksi tidak valid.",
-      },
-      { status: 400 }
-    );
-  }
+    const prepared = validateAndPrepareTransaction({
+      agentId: parsed.data.agentId,
+      transactionAt: txDate,
+      case: caseMeta.value,
+      description: parsed.data.description,
+      debit,
+      credit,
+      source: "manual",
+    });
 
-  try {
+    if (!prepared.ok) {
+      return NextResponse.json(
+        {
+          code: "VALIDATION_ERROR",
+          message: prepared.errors[0] ?? "Transaksi tidak valid.",
+        },
+        { status: 400 }
+      );
+    }
+
     const repo = getDataRepository();
     const created = await repo.createManualTransaction({
       agentId: prepared.data.agentId,
@@ -184,13 +181,9 @@ export async function POST(request: NextRequest) {
       { status: 201 }
     );
   } catch (err) {
-    const message =
-      err instanceof Error
-        ? err.message
-        : "Terjadi kesalahan. Silakan coba lagi.";
-    return NextResponse.json(
-      { code: "CREATE_FAILED", message },
-      { status: 400 }
-    );
+    return handleApiError(err, {
+      context: "POST /api/transactions",
+      defaultCode: "CREATE_FAILED",
+    });
   }
 }

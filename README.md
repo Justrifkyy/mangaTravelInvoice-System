@@ -267,7 +267,7 @@ Didefinisikan pada [`prisma/schema.prisma`](./prisma/schema.prisma) dengan *prov
 | `/api/account/password` | `POST` | Ganti password akun sendiri dengan verifikasi password lama | Auth |
 | `/api/transactions` | `GET`, `POST` | Ambil daftar transaksi terpaginasi (`GET`) / simpan input manual (`POST`) | Auth (`GET`), Admin (`POST`) |
 | `/api/transactions/summary` | `GET` | Ambil metrik KPI (`closingBalance`, `totalCredit`, `totalDebit`, `count`) | Auth |
-| `/api/transactions/preview-balance` | `GET` | Hitung pratinjau saldo sebelum & sesudah pada form input manual | Admin |
+| `/api/transactions/preview-balance` | `POST` | Hitung pratinjau saldo sebelum & sesudah pada form input manual | Admin |
 | `/api/transactions/[id]` | `GET` | Ambil detail satu transaksi beserta daftar transaksi terkait | Auth |
 | `/api/receipts` | `GET`, `POST` | Ambil payload cetak struk (`GET`) / catat audit `receipt.print` (`POST`) | Auth |
 | `/api/imports` | `GET` | Ambil daftar riwayat *batch* impor | Admin |
@@ -387,6 +387,7 @@ npm run build
 Cakupan pengujian otomatis pada folder [`tests/`](./tests/):
 - [`tests/domain.test.ts`](./tests/domain.test.ts): Aritmetika Rupiah `BigInt`, ekstraksi `No. Pesanan` & `Kode Booking`, perhitungan saldo berurutan & rekalkulasi *backdate*, kalkulasi Struk Grup (`Rp 2.091.960`), pemfilteran transaksi, dan penguncian lingkup data peran `Agen` di sisi server.
 - [`tests/phase2-3.test.ts`](./tests/phase2-3.test.ts): Penandatanganan, verifikasi, deteksi kedaluwarsa & anti-manipulasi token sesi HMAC-SHA256, *parser* Excel/CSV dengan judul baris atas, dan konsistensi sidik jari deduplikasi `dedupHash`.
+- [`tests/error-handling.test.ts`](./tests/error-handling.test.ts): Sanitasi error API terpusat (`handleApiError`, `zodErrorToApiResponse`, `AppApiError`), pemetaan gangguan koneksi MySQL/Prisma (`HTTP 503 DATABASE_UNAVAILABLE`), pelanggaran unik (`HTTP 409`), data tidak ditemukan (`HTTP 404`), dan penyembunyian detail SQL/*stack trace* internal dengan kode referensi `ERR-XXXX`.
 
 ---
 

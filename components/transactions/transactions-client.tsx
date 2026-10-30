@@ -12,8 +12,10 @@ import {
   ChevronRight,
   FileUp,
   Hash,
+  Loader2,
   PlusCircle,
   Printer,
+  RefreshCw,
   Search,
   SlidersHorizontal,
   Wallet,
@@ -25,7 +27,9 @@ import { TransactionDetailDrawer } from "@/components/transactions/transaction-d
 import { CaseBadge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { EmptyState } from "@/components/ui/empty-state";
+import { IndeterminateProgressBar } from "@/components/ui/skeleton";
 import { StatCard } from "@/components/ui/stat-card";
+import { useToast } from "@/components/ui/toast";
 import type { AppAgentRecord, SessionUser } from "@/lib/db/types";
 import { formatDateTimeTable, formatRupiah } from "@/lib/domain/format";
 import type {
@@ -59,11 +63,18 @@ export function TransactionsClient({
 }: TransactionsClientProps) {
   const router = useRouter();
   const pathname = usePathname();
-  const [, startTransition] = React.useTransition();
+  const toast = useToast();
+  const [isPending, startTransition] = React.useTransition();
 
   const [searchText, setSearchText] = React.useState(query.q);
   const [prevQueryQ, setPrevQueryQ] = React.useState(query.q);
   const [filterDrawerOpen, setFilterDrawerOpen] = React.useState(false);
+
+  // Optimistic detailId agar Drawer langsung terbuka dengan Skeleton tanpa jeda jaringan
+  const [optimisticDetailId, setOptimisticDetailId] = React.useState<
+    string | null
+  >(null);
+  const [prevDetailId, setPrevDetailId] = React.useState(query.detailId);
 
   // Sinkronkan input pencarian saat URL query berubah (mis. tombol Back/Forward)
   if (prevQueryQ !== query.q) {
@@ -71,8 +82,16 @@ export function TransactionsClient({
     setSearchText(query.q);
   }
 
+  if (prevDetailId !== query.detailId) {
+    setPrevDetailId(query.detailId);
+    setOptimisticDetailId(null);
+  }
+
   const navigateWithPatch = React.useCallback(
-    (patch: Partial<TransactionFilterQuery>, options?: { replace?: boolean }) => {
+    (
+      patch: Partial<TransactionFilterQuery>,
+      options?: { replace?: boolean }
+    ) => {
       const merged: TransactionFilterQuery = {
         ...query,
         ...patch,
@@ -130,12 +149,21 @@ export function TransactionsClient({
     });
   }
 
+  function handleRefreshData() {
+    startTransition(() => {
+      router.refresh();
+    });
+    toast.info("Data transaksi diperbarui.");
+  }
+
   function handleOpenDetail(txId: string) {
+    setOptimisticDetailId(txId);
     navigateWithPatch({ detailId: txId }, { replace: false });
   }
 
   function handleCloseDetail(open: boolean) {
     if (!open) {
+      setOptimisticDetailId("");
       navigateWithPatch({ detailId: "" }, { replace: true });
     }
   }
@@ -152,7 +180,22 @@ export function TransactionsClient({
     (session.role === "agent" && query.agentCode ? 1 : 0);
 
   const isAdmin = session.role === "admin";
-  const detailDrawerOpen = Boolean(query.detailId);
+  const isSearchDebouncing = searchText.trim() !== query.q;
+
+  const activeDetailId =
+    optimisticDetailId !== null ? optimisticDetailId : query.detailId;
+  const detailDrawerOpen = Boolean(activeDetailId);
+  const matchingDetail =
+    initialDetail && initialDetail.transaction.id === activeDetailId
+      ? initialDetail
+      : null;
+  const isDetailLoading =
+    detailDrawerOpen &&
+    !matchingDetail &&
+    (isPending || optimisticDetailId !== null);
+
+  // Indikator pemuatan tabel (saat memfilter, mengurutkan, atau berpindah halaman)
+  const isTableTransitioning = isPending && optimisticDetailId === null;
 
   return (
     <div className="space-y-6">
@@ -197,13 +240,20 @@ export function TransactionsClient({
         />
       </section>
 
-      {/* 2. Toolbar: SearchInput + Tombol Filter */}
+      {/* 2. Toolbar: SearchInput + Tombol Filter + Muat Ulang */}
       <section className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div className="relative w-full sm:max-w-[420px]">
-          <Search
-            className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-neutral-400"
-            aria-hidden="true"
-          />
+          {isSearchDebouncing || isTableTransitioning ? (
+            <Loader2
+              className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 animate-spin text-primary-600"
+              aria-hidden="true"
+            />
+          ) : (
+            <Search
+              className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-neutral-400"
+              aria-hidden="true"
+            />
+          )}
           <input
             type="search"
             value={searchText}
@@ -226,6 +276,25 @@ export function TransactionsClient({
         </div>
 
         <div className="flex flex-wrap items-center gap-2.5">
+          <Button
+            type="button"
+            variant="secondary"
+            onClick={handleRefreshData}
+            disabled={isPending}
+            title="Muat ulang data transaksi"
+            aria-label="Muat ulang data transaksi"
+            className="px-3"
+          >
+            <RefreshCw
+              className={cn(
+                "h-4 w-4",
+                isTableTransitioning && "animate-spin text-primary-600"
+              )}
+              aria-hidden="true"
+            />
+            <span className="hidden lg:inline">Muat Ulang</span>
+          </Button>
+
           <Button
             type="button"
             variant="secondary"
@@ -328,6 +397,9 @@ export function TransactionsClient({
         <>
           {/* DataTable Desktop (>= 768px) */}
           <div className="hidden overflow-hidden rounded-lg border border-surface-border bg-surface-card shadow-card md:block">
+            {isTableTransitioning && (
+              <IndeterminateProgressBar label="Memperbarui daftar transaksi..." />
+            )}
             <div className="overflow-x-auto">
               <table className="w-full border-collapse text-left text-sm">
                 <thead className="sticky top-0 z-10 border-b border-surface-border bg-surface-table-header">
@@ -407,7 +479,12 @@ export function TransactionsClient({
                     </th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-surface-border">
+                <tbody
+                  className={cn(
+                    "divide-y divide-surface-border transition-opacity",
+                    isTableTransitioning && "opacity-65"
+                  )}
+                >
                   {result.items.map((tx) => {
                     const debit = BigInt(tx.debit);
                     const credit = BigInt(tx.credit);
@@ -504,7 +581,18 @@ export function TransactionsClient({
           </div>
 
           {/* TransactionCard Mobile (< 768px) — design-spec.json > components.TransactionCard_mobile */}
-          <div className="space-y-3 md:hidden">
+          <div
+            className={cn(
+              "space-y-3 transition-opacity md:hidden",
+              isTableTransitioning && "opacity-65"
+            )}
+          >
+            {isTableTransitioning && (
+              <IndeterminateProgressBar
+                label="Memperbarui daftar transaksi..."
+                className="rounded-full"
+              />
+            )}
             {result.items.map((tx) => {
               const debit = BigInt(tx.debit);
               const credit = BigInt(tx.credit);
@@ -611,13 +699,14 @@ export function TransactionsClient({
                 <select
                   id="page-size-select"
                   value={result.pagination.pageSize}
+                  disabled={isTableTransitioning}
                   onChange={(e) =>
                     navigateWithPatch({
                       pageSize: Number(e.target.value) as PageSizeOption,
                       page: 1,
                     })
                   }
-                  className="h-8 rounded-md border border-neutral-200 bg-neutral-0 px-2 text-xs font-medium text-neutral-900 focus:outline-none focus:ring-2 focus:ring-primary-500 cursor-pointer"
+                  className="h-8 rounded-md border border-neutral-200 bg-neutral-0 px-2 text-xs font-medium text-neutral-900 focus:outline-none focus:ring-2 focus:ring-primary-500 disabled:opacity-60 cursor-pointer"
                 >
                   {PAGE_SIZE_OPTIONS.map((opt) => (
                     <option key={opt} value={opt}>
@@ -633,7 +722,7 @@ export function TransactionsClient({
                 type="button"
                 variant="secondary"
                 size="sm"
-                disabled={result.pagination.page <= 1}
+                disabled={result.pagination.page <= 1 || isTableTransitioning}
                 onClick={() =>
                   navigateWithPatch({ page: result.pagination.page - 1 })
                 }
@@ -650,7 +739,8 @@ export function TransactionsClient({
                 variant="secondary"
                 size="sm"
                 disabled={
-                  result.pagination.page >= result.pagination.totalPages
+                  result.pagination.page >= result.pagination.totalPages ||
+                  isTableTransitioning
                 }
                 onClick={() =>
                   navigateWithPatch({ page: result.pagination.page + 1 })
@@ -679,9 +769,12 @@ export function TransactionsClient({
       <TransactionDetailDrawer
         open={detailDrawerOpen}
         onOpenChange={handleCloseDetail}
-        detail={initialDetail}
+        detail={matchingDetail}
+        isLoading={isDetailLoading}
         notFoundId={
-          detailDrawerOpen && !initialDetail ? query.detailId : null
+          detailDrawerOpen && !isDetailLoading && !matchingDetail
+            ? activeDetailId
+            : null
         }
         onSelectRelated={(relId) => handleOpenDetail(relId)}
       />

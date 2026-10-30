@@ -2,9 +2,12 @@
 
 import * as React from "react";
 import { RefreshCw, Search } from "lucide-react";
+import { AlertBanner } from "@/components/ui/alert-banner";
 import { Button } from "@/components/ui/button";
 import { EmptyState } from "@/components/ui/empty-state";
+import { IndeterminateProgressBar } from "@/components/ui/skeleton";
 import { useToast } from "@/components/ui/toast";
+import { apiFetch } from "@/lib/client/api-client";
 import type { AppAuditLogRecord } from "@/lib/db/types";
 import { formatDateTimeTable, formatRupiah } from "@/lib/domain/format";
 import { cn } from "@/lib/utils";
@@ -128,6 +131,11 @@ function summarizeMetadata(metadata: Record<string, unknown> | null): string {
       `Mode: ${metadata.mode === "group" ? "Struk Grup" : "Struk Individual"}`
     );
   }
+  if (typeof metadata.size === "string") {
+    parts.push(
+      `Kertas: ${metadata.size === "a4" ? "A4" : `${metadata.size}mm`}`
+    );
+  }
   if (typeof metadata.fileName === "string") {
     parts.push(`File: ${metadata.fileName}`);
   }
@@ -167,20 +175,29 @@ export function AuditLogsViewer({ initialLogs }: AuditLogsViewerProps) {
   const [search, setSearch] = React.useState("");
   const [category, setCategory] = React.useState<ActionCategory>("all");
   const [isRefreshing, setIsRefreshing] = React.useState(false);
+  const [refreshError, setRefreshError] = React.useState<string | null>(null);
 
   async function handleRefresh() {
     if (isRefreshing) return;
     setIsRefreshing(true);
-    try {
-      const res = await fetch("/api/admin/audit-logs?limit=200");
-      if (!res.ok) throw new Error("Gagal memuat log");
-      const data = (await res.json()) as { logs?: AppAuditLogRecord[] };
-      if (data.logs) setLogs(data.logs);
-    } catch {
-      toast.error("Terjadi kesalahan. Silakan coba lagi.");
-    } finally {
+    setRefreshError(null);
+
+    const res = await apiFetch<{ logs?: AppAuditLogRecord[] }>(
+      "/api/admin/audit-logs?limit=200"
+    );
+
+    if (!res.ok) {
+      setRefreshError(res.message);
+      toast.error(res.message);
       setIsRefreshing(false);
+      return;
     }
+
+    if (res.data.logs) {
+      setLogs(res.data.logs);
+    }
+    toast.info("Log audit diperbarui.");
+    setIsRefreshing(false);
   }
 
   const filteredLogs = React.useMemo(() => {
@@ -251,6 +268,15 @@ export function AuditLogsViewer({ initialLogs }: AuditLogsViewerProps) {
         </Button>
       </div>
 
+      {refreshError && (
+        <AlertBanner
+          variant="error"
+          onDismiss={() => setRefreshError(null)}
+        >
+          {refreshError}
+        </AlertBanner>
+      )}
+
       {/* Tabel Log Audit */}
       {filteredLogs.length === 0 ? (
         <EmptyState
@@ -263,6 +289,9 @@ export function AuditLogsViewer({ initialLogs }: AuditLogsViewerProps) {
         />
       ) : (
         <div className="overflow-hidden rounded-lg border border-surface-border bg-surface-card shadow-card">
+          {isRefreshing && (
+            <IndeterminateProgressBar label="Memuat ulang log audit..." />
+          )}
           <div className="overflow-x-auto">
             <table className="w-full border-collapse text-left text-sm">
               <thead className="border-b border-surface-border bg-surface-table-header">
@@ -284,7 +313,12 @@ export function AuditLogsViewer({ initialLogs }: AuditLogsViewerProps) {
                   </th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-surface-border">
+              <tbody
+                className={cn(
+                  "divide-y divide-surface-border transition-opacity",
+                  isRefreshing && "opacity-65"
+                )}
+              >
                 {filteredLogs.map((log) => {
                   const meta = getActionMeta(log.action);
                   return (
@@ -336,4 +370,3 @@ export function AuditLogsViewer({ initialLogs }: AuditLogsViewerProps) {
     </div>
   );
 }
-

@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { Plus_Jakarta_Sans, JetBrains_Mono } from "next/font/google";
+import { SystemFeedbackListener } from "@/components/ui/system-feedback-listener";
 import { ToastProvider } from "@/components/ui/toast";
 import "./globals.css";
 
@@ -30,7 +31,10 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
       className={`${plusJakartaSans.variable} ${jetbrainsMono.variable} h-full antialiased`}
     >
       <body className="min-h-full flex flex-col bg-surface-app text-neutral-900">
-        <ToastProvider>{children}</ToastProvider>
+        <ToastProvider>
+          <SystemFeedbackListener />
+          {children}
+        </ToastProvider>
       </body>
     </html>
   );

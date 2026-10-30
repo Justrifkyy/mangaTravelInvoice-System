@@ -9,6 +9,7 @@ import {
   ChevronRight,
   ClipboardList,
   FileUp,
+  Loader2,
   LogOut,
   Menu,
   PlusCircle,
@@ -20,7 +21,9 @@ import {
 import { BrandLogo } from "@/components/brand/brand-logo";
 import { RoleBadge } from "@/components/ui/badge";
 import { Drawer } from "@/components/ui/drawer";
+import { IndeterminateProgressBar } from "@/components/ui/skeleton";
 import { useToast } from "@/components/ui/toast";
+import { apiFetch } from "@/lib/client/api-client";
 import type { SessionUser } from "@/lib/db/types";
 import { cn } from "@/lib/utils";
 
@@ -112,6 +115,13 @@ export function AppShell({
   const [collapsed, setCollapsed] = React.useState(false);
   const [mobileNavOpen, setMobileNavOpen] = React.useState(false);
   const [isLoggingOut, setIsLoggingOut] = React.useState(false);
+  const [navigatingTo, setNavigatingTo] = React.useState<string | null>(null);
+  const [prevPathname, setPrevPathname] = React.useState(pathname);
+
+  if (prevPathname !== pathname) {
+    setPrevPathname(pathname);
+    setNavigatingTo(null);
+  }
 
   const visibleNav = NAV_ITEMS.filter((item) =>
     item.roles.includes(session.role)
@@ -120,14 +130,28 @@ export function AppShell({
   async function handleLogout() {
     if (isLoggingOut) return;
     setIsLoggingOut(true);
-    try {
-      await fetch("/api/auth/logout", { method: "POST" });
-      router.push("/login");
-      router.refresh();
-    } catch {
-      toast.error("Terjadi kesalahan. Silakan coba lagi.");
+
+    const res = await apiFetch("/api/auth/logout", {
+      method: "POST",
+      redirectOnUnauthorized: false,
+    });
+
+    if (!res.ok) {
+      toast.error(res.message);
       setIsLoggingOut(false);
+      return;
     }
+
+    toast.info("Anda telah keluar dari sistem.");
+    router.push("/login");
+    router.refresh();
+  }
+
+  function handleNavClick(targetHref: string, afterClick?: () => void) {
+    if (pathname !== targetHref) {
+      setNavigatingTo(targetHref);
+    }
+    afterClick?.();
   }
 
   function renderNavList(isCollapsedView: boolean, onNavigate?: () => void) {
@@ -136,19 +160,23 @@ export function AppShell({
         {visibleNav.map((item) => {
           const Icon = item.icon;
           const isActive = isNavItemActive(pathname, item.href);
+          const isLoadingTarget = navigatingTo === item.href;
 
           return (
             <Link
               key={item.href}
               href={item.href}
-              onClick={onNavigate}
+              onClick={() => handleNavClick(item.href, onNavigate)}
               title={isCollapsedView ? item.label : undefined}
+              aria-busy={isLoadingTarget || undefined}
               className={cn(
                 "relative flex items-center gap-3 rounded-md px-3 py-2.5 text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-500",
                 isCollapsedView && "justify-center px-2",
                 isActive
                   ? "bg-primary-50 text-primary-700 font-semibold"
-                  : "text-neutral-700 hover:bg-neutral-50 hover:text-neutral-900"
+                  : isLoadingTarget
+                    ? "bg-neutral-50 text-primary-700"
+                    : "text-neutral-700 hover:bg-neutral-50 hover:text-neutral-900"
               )}
             >
               {isActive && (
@@ -157,7 +185,14 @@ export function AppShell({
                   className="absolute inset-y-1.5 left-0 w-[3px] rounded-r-full bg-accent-lime-500"
                 />
               )}
-              <Icon className="h-5 w-5 shrink-0" aria-hidden="true" />
+              {isLoadingTarget ? (
+                <Loader2
+                  className="h-5 w-5 shrink-0 animate-spin text-primary-600"
+                  aria-hidden="true"
+                />
+              ) : (
+                <Icon className="h-5 w-5 shrink-0" aria-hidden="true" />
+              )}
               {!isCollapsedView && (
                 <span className="truncate">{item.label}</span>
               )}
@@ -167,6 +202,8 @@ export function AppShell({
       </nav>
     );
   }
+
+  const showTopProgressBar = navigatingTo !== null || isLoggingOut;
 
   return (
     <div className="flex min-h-screen w-full bg-surface-app">
@@ -185,6 +222,7 @@ export function AppShell({
         >
           <Link
             href="/transactions"
+            onClick={() => handleNavClick("/transactions")}
             className="rounded-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-500"
           >
             <BrandLogo variant={collapsed ? "icon" : "horizontal"} />
@@ -220,6 +258,7 @@ export function AppShell({
         <div className="border-t border-surface-border p-3 space-y-1.5">
           <Link
             href="/account"
+            onClick={() => handleNavClick("/account")}
             title={collapsed ? `Profil ${session.name}` : "Buka profil akun"}
             className={cn(
               "flex items-center gap-2.5 rounded-md bg-neutral-25 px-2.5 py-2 transition-colors hover:bg-primary-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-500",
@@ -254,7 +293,11 @@ export function AppShell({
               collapsed && "justify-center px-2"
             )}
           >
-            <LogOut className="h-4 w-4 shrink-0" aria-hidden="true" />
+            {isLoggingOut ? (
+              <Loader2 className="h-4 w-4 shrink-0 animate-spin" aria-hidden="true" />
+            ) : (
+              <LogOut className="h-4 w-4 shrink-0" aria-hidden="true" />
+            )}
             {!collapsed && (
               <span>{isLoggingOut ? "Keluar..." : "Keluar"}</span>
             )}
@@ -290,9 +333,13 @@ export function AppShell({
               type="button"
               disabled={isLoggingOut}
               onClick={handleLogout}
-              className="flex h-10 w-full items-center gap-2.5 rounded-md border border-neutral-200 px-3 text-sm font-medium text-neutral-700 hover:bg-neutral-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-500 cursor-pointer"
+              className="flex h-10 w-full items-center gap-2.5 rounded-md border border-neutral-200 px-3 text-sm font-medium text-neutral-700 hover:bg-neutral-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-500 disabled:opacity-50 cursor-pointer"
             >
-              <LogOut className="h-4 w-4" aria-hidden="true" />
+              {isLoggingOut ? (
+                <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
+              ) : (
+                <LogOut className="h-4 w-4" aria-hidden="true" />
+              )}
               <span>{isLoggingOut ? "Keluar..." : "Keluar"}</span>
             </button>
           </div>
@@ -302,7 +349,7 @@ export function AppShell({
       {/* Area Utama */}
       <div className="flex min-w-0 flex-1 flex-col">
         {/* Topbar (64px) */}
-        <header className="no-print sticky top-0 z-10 flex h-16 items-center justify-between gap-3 border-b border-surface-border bg-surface-card px-4 sm:px-6 lg:px-8">
+        <header className="no-print sticky top-0 z-10 relative flex h-16 items-center justify-between gap-3 border-b border-surface-border bg-surface-card px-4 sm:px-6 lg:px-8">
           <div className="flex items-center gap-3 min-w-0">
             <button
               type="button"
@@ -331,6 +378,13 @@ export function AppShell({
             )}
             <RoleBadge role={session.role} />
           </div>
+
+          {showTopProgressBar && (
+            <IndeterminateProgressBar
+              label="Memuat halaman..."
+              className="absolute inset-x-0 bottom-0"
+            />
+          )}
         </header>
 
         {/* Konten Halaman (max-width 1440px, padding responsif 16/24/32px) */}

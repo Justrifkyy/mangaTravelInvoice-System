@@ -2,9 +2,12 @@
 
 import * as React from "react";
 import { useRouter } from "next/navigation";
-import { AlertCircle, Clock, Eye, EyeOff } from "lucide-react";
+import { Eye, EyeOff } from "lucide-react";
 import { BrandLogo } from "@/components/brand/brand-logo";
+import { AlertBanner } from "@/components/ui/alert-banner";
 import { Button } from "@/components/ui/button";
+import { useToast } from "@/components/ui/toast";
+import { apiFetch } from "@/lib/client/api-client";
 import { cn } from "@/lib/utils";
 
 export interface LoginFormProps {
@@ -21,6 +24,7 @@ export function LoginForm({
   logoPath,
 }: LoginFormProps) {
   const router = useRouter();
+  const toast = useToast();
   const [username, setUsername] = React.useState("");
   const [password, setPassword] = React.useState("");
   const [showPassword, setShowPassword] = React.useState(false);
@@ -54,36 +58,37 @@ export function LoginForm({
     }
 
     setIsSubmitting(true);
-    try {
-      const res = await fetch("/api/auth/login", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          username: username.trim(),
-          password,
-        }),
-      });
+    const res = await apiFetch<{
+      user?: { name: string; role: string; agentCode: string | null };
+    }>("/api/auth/login", {
+      method: "POST",
+      body: {
+        username: username.trim(),
+        password,
+      },
+      redirectOnUnauthorized: false,
+      fallbackErrorMessage: "Gagal memproses login. Silakan coba lagi.",
+    });
 
-      const data = (await res.json()) as {
-        message?: string;
-        fields?: { username?: string; password?: string };
-      };
-
-      if (!res.ok) {
-        if (data.fields) {
-          setFieldErrors(data.fields);
-        }
-        setErrorMsg(data.message ?? "Username atau password salah.");
-        setIsSubmitting(false);
-        return;
+    if (!res.ok) {
+      if (res.fields) {
+        setFieldErrors({
+          username: res.fields.username,
+          password: res.fields.password,
+        });
       }
-
-      router.push(safeRedirectTarget);
-      router.refresh();
-    } catch {
-      setErrorMsg("Terjadi kesalahan. Silakan coba lagi.");
+      setErrorMsg(res.message);
       setIsSubmitting(false);
+      return;
     }
+
+    toast.success(
+      res.data.user?.name
+        ? `Selamat datang, ${res.data.user.name}!`
+        : "Berhasil masuk ke sistem."
+    );
+    router.push(safeRedirectTarget);
+    router.refresh();
   }
 
   function applyDemoAccount(demoUser: string, demoPass: string) {
@@ -111,13 +116,9 @@ export function LoginForm({
         </div>
 
         {expired && !errorMsg && (
-          <div
-            role="status"
-            className="mb-4 flex items-start gap-2.5 rounded-md border border-warning-bg bg-warning-bg px-3.5 py-2.5 text-xs font-medium text-warning-text"
-          >
-            <Clock className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
-            <span>Sesi Anda berakhir. Silakan masuk kembali.</span>
-          </div>
+          <AlertBanner variant="warning" className="mb-4">
+            Sesi Anda berakhir. Silakan masuk kembali.
+          </AlertBanner>
         )}
 
         <form onSubmit={handleSubmit} noValidate className="space-y-4">
@@ -134,6 +135,7 @@ export function LoginForm({
               type="text"
               autoComplete="username"
               autoFocus
+              disabled={isSubmitting}
               value={username}
               onChange={(e) => {
                 setUsername(e.target.value);
@@ -148,7 +150,7 @@ export function LoginForm({
               }
               placeholder="Masukkan username"
               className={cn(
-                "h-10 w-full rounded-md border bg-neutral-0 px-3 text-sm text-neutral-900 placeholder:text-neutral-400 focus:outline-none focus:ring-2 focus:ring-primary-500",
+                "h-10 w-full rounded-md border bg-neutral-0 px-3 text-sm text-neutral-900 placeholder:text-neutral-400 focus:outline-none focus:ring-2 focus:ring-primary-500 disabled:bg-neutral-50",
                 fieldErrors.username ? "border-danger" : "border-neutral-200"
               )}
             />
@@ -176,6 +178,7 @@ export function LoginForm({
                 name="password"
                 type={showPassword ? "text" : "password"}
                 autoComplete="current-password"
+                disabled={isSubmitting}
                 value={password}
                 onChange={(e) => {
                   setPassword(e.target.value);
@@ -193,7 +196,7 @@ export function LoginForm({
                 }
                 placeholder="Masukkan password"
                 className={cn(
-                  "h-10 w-full rounded-md border bg-neutral-0 pl-3 pr-10 text-sm text-neutral-900 placeholder:text-neutral-400 focus:outline-none focus:ring-2 focus:ring-primary-500",
+                  "h-10 w-full rounded-md border bg-neutral-0 pl-3 pr-10 text-sm text-neutral-900 placeholder:text-neutral-400 focus:outline-none focus:ring-2 focus:ring-primary-500 disabled:bg-neutral-50",
                   fieldErrors.password ? "border-danger" : "border-neutral-200"
                 )}
               />
@@ -224,16 +227,12 @@ export function LoginForm({
           </div>
 
           {errorMsg && (
-            <div
-              role="alert"
-              className="flex items-start gap-2.5 rounded-md border border-debit-bg bg-debit-bg px-3.5 py-2.5 text-xs font-medium text-debit-text"
+            <AlertBanner
+              variant="error"
+              onDismiss={() => setErrorMsg(null)}
             >
-              <AlertCircle
-                className="mt-0.5 h-4 w-4 shrink-0"
-                aria-hidden="true"
-              />
-              <span>{errorMsg}</span>
-            </div>
+              {errorMsg}
+            </AlertBanner>
           )}
 
           <Button
@@ -254,8 +253,9 @@ export function LoginForm({
         <div className="mt-2 grid grid-cols-2 gap-2">
           <button
             type="button"
+            disabled={isSubmitting}
             onClick={() => applyDemoAccount("admin", "admin123")}
-            className="rounded-md border border-neutral-200 bg-neutral-0 px-2.5 py-1.5 text-left transition-colors hover:border-primary-500 hover:bg-primary-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-500 cursor-pointer"
+            className="rounded-md border border-neutral-200 bg-neutral-0 px-2.5 py-1.5 text-left transition-colors hover:border-primary-500 hover:bg-primary-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-500 disabled:opacity-50 cursor-pointer"
           >
             <span className="block font-semibold text-neutral-900">Admin</span>
             <span className="font-mono text-[11px] text-neutral-500">
@@ -264,8 +264,9 @@ export function LoginForm({
           </button>
           <button
             type="button"
+            disabled={isSubmitting}
             onClick={() => applyDemoAccount("eman", "eman123")}
-            className="rounded-md border border-neutral-200 bg-neutral-0 px-2.5 py-1.5 text-left transition-colors hover:border-primary-500 hover:bg-primary-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-500 cursor-pointer"
+            className="rounded-md border border-neutral-200 bg-neutral-0 px-2.5 py-1.5 text-left transition-colors hover:border-primary-500 hover:bg-primary-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-500 disabled:opacity-50 cursor-pointer"
           >
             <span className="block font-semibold text-neutral-900">
               Agen JKT-37287
@@ -279,4 +280,3 @@ export function LoginForm({
     </div>
   );
 }
-

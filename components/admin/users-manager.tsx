@@ -3,21 +3,24 @@
 import * as React from "react";
 import { useRouter } from "next/navigation";
 import {
-  AlertCircle,
   Eye,
   EyeOff,
   KeyRound,
   Pencil,
   Plus,
   Power,
+  RefreshCw,
   Search,
 } from "lucide-react";
 import type { SafeUserDto } from "@/app/api/admin/users/route";
+import { AlertBanner } from "@/components/ui/alert-banner";
 import { ActiveStatusBadge, RoleBadge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { EmptyState } from "@/components/ui/empty-state";
 import { Modal } from "@/components/ui/modal";
+import { IndeterminateProgressBar } from "@/components/ui/skeleton";
 import { useToast } from "@/components/ui/toast";
+import { apiFetch } from "@/lib/client/api-client";
 import type { AppAgentRecord, UserRoleType } from "@/lib/db/types";
 import { formatDateTimeTable } from "@/lib/domain/format";
 import { cn } from "@/lib/utils";
@@ -35,6 +38,7 @@ export function UsersManager({
 }: UsersManagerProps) {
   const router = useRouter();
   const toast = useToast();
+  const [isRefreshing, startRefreshTransition] = React.useTransition();
 
   const [users, setUsers] = React.useState<SafeUserDto[]>(initialUsers);
   const [prevInitial, setPrevInitial] = React.useState(initialUsers);
@@ -65,46 +69,44 @@ export function UsersManager({
     );
   }, [users, search]);
 
+  function handleRefreshList() {
+    startRefreshTransition(() => {
+      router.refresh();
+    });
+    toast.info("Daftar pengguna diperbarui.");
+  }
+
   async function handleConfirmToggleActive(targetUser: SafeUserDto) {
     if (isToggling) return;
     setIsToggling(true);
     const nextActive = !targetUser.isActive;
 
-    try {
-      const res = await fetch("/api/admin/users", {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          id: targetUser.id,
-          isActive: nextActive,
-        }),
-      });
-      const data = (await res.json()) as {
-        user?: SafeUserDto;
-        message?: string;
-      };
+    const res = await apiFetch<{ user?: SafeUserDto }>("/api/admin/users", {
+      method: "PATCH",
+      body: {
+        id: targetUser.id,
+        isActive: nextActive,
+      },
+    });
 
-      if (!res.ok || !data.user) {
-        toast.error(data.message ?? "Terjadi kesalahan. Silakan coba lagi.");
-        setIsToggling(false);
-        return;
-      }
-
-      setUsers((prev) =>
-        prev.map((u) => (u.id === data.user!.id ? data.user! : u))
-      );
-      toast.success(
-        nextActive
-          ? `Pengguna ${data.user.username} diaktifkan.`
-          : `Pengguna ${data.user.username} dinonaktifkan.`
-      );
-      setModalMode({ type: "closed" });
+    if (!res.ok || !res.data.user) {
+      toast.error(!res.ok ? res.message : "Gagal memperbarui status pengguna.");
       setIsToggling(false);
-      router.refresh();
-    } catch {
-      toast.error("Terjadi kesalahan. Silakan coba lagi.");
-      setIsToggling(false);
+      return;
     }
+
+    const updatedUser = res.data.user;
+    setUsers((prev) =>
+      prev.map((u) => (u.id === updatedUser.id ? updatedUser : u))
+    );
+    toast.success(
+      nextActive
+        ? `Pengguna ${updatedUser.username} diaktifkan.`
+        : `Pengguna ${updatedUser.username} dinonaktifkan.`
+    );
+    setModalMode({ type: "closed" });
+    setIsToggling(false);
+    router.refresh();
   }
 
   return (
@@ -126,14 +128,32 @@ export function UsersManager({
           />
         </div>
 
-        <Button
-          type="button"
-          variant="primary"
-          onClick={() => setModalMode({ type: "create" })}
-        >
-          <Plus className="h-4 w-4" aria-hidden="true" />
-          Tambah Pengguna
-        </Button>
+        <div className="flex items-center gap-2.5">
+          <Button
+            type="button"
+            variant="secondary"
+            disabled={isRefreshing}
+            onClick={handleRefreshList}
+          >
+            <RefreshCw
+              className={cn(
+                "h-4 w-4",
+                isRefreshing && "animate-spin text-primary-600"
+              )}
+              aria-hidden="true"
+            />
+            <span className="hidden sm:inline">Muat Ulang</span>
+          </Button>
+
+          <Button
+            type="button"
+            variant="primary"
+            onClick={() => setModalMode({ type: "create" })}
+          >
+            <Plus className="h-4 w-4" aria-hidden="true" />
+            Tambah Pengguna
+          </Button>
+        </div>
       </div>
 
       {/* Tabel Pengguna */}
@@ -148,6 +168,9 @@ export function UsersManager({
         />
       ) : (
         <div className="overflow-hidden rounded-lg border border-surface-border bg-surface-card shadow-card">
+          {isRefreshing && (
+            <IndeterminateProgressBar label="Memperbarui daftar pengguna..." />
+          )}
           <div className="overflow-x-auto">
             <table className="w-full border-collapse text-left text-sm">
               <thead className="border-b border-surface-border bg-surface-table-header">
@@ -175,7 +198,12 @@ export function UsersManager({
                   </th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-surface-border">
+              <tbody
+                className={cn(
+                  "divide-y divide-surface-border transition-opacity",
+                  isRefreshing && "opacity-65"
+                )}
+              >
                 {filteredUsers.map((user) => {
                   const isSelf = user.id === currentUserId;
                   return (
@@ -437,51 +465,66 @@ function UserFormInner({
     e.preventDefault();
     setErrorMsg(null);
     setFieldErrors({});
-    setIsSaving(true);
 
-    try {
-      const isNew = !editingUser;
-      const res = await fetch("/api/admin/users", {
-        method: isNew ? "POST" : "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(
-          isNew
-            ? {
-                username: username.trim().toLowerCase(),
-                name: name.trim(),
-                password,
-                role,
-                agentId: role === "agent" ? agentId : null,
-              }
-            : {
-                id: editingUser.id,
-                name: name.trim(),
-                role,
-                agentId: role === "agent" ? agentId : null,
-              }
-        ),
-      });
+    const isNew = !editingUser;
+    const nextErrors: Record<string, string> = {};
 
-      const data = (await res.json()) as {
-        user?: SafeUserDto;
-        message?: string;
-        fields?: Record<string, string>;
-      };
-
-      if (!res.ok || !data.user) {
-        if (data.fields) setFieldErrors(data.fields);
-        setErrorMsg(
-          data.message ?? "Terjadi kesalahan. Silakan coba lagi."
-        );
-        setIsSaving(false);
-        return;
+    if (isNew) {
+      const trimmedUser = username.trim().toLowerCase();
+      if (trimmedUser.length < 3) {
+        nextErrors.username = "Username minimal 3 karakter.";
+      } else if (!/^[A-Za-z0-9_.-]+$/.test(trimmedUser)) {
+        nextErrors.username =
+          "Username hanya boleh berisi huruf, angka, titik, garis bawah, atau tanda hubung.";
       }
 
-      onSaved(data.user, isNew);
-    } catch {
-      setErrorMsg("Terjadi kesalahan. Silakan coba lagi.");
-      setIsSaving(false);
+      if (password.length < 6) {
+        nextErrors.password = "Password awal minimal 6 karakter.";
+      }
     }
+
+    if (!name.trim()) {
+      nextErrors.name = "Nama lengkap wajib diisi.";
+    }
+
+    if (role === "agent" && !agentId) {
+      nextErrors.agentId = "Pilih agen yang akan ditautkan.";
+    }
+
+    if (Object.keys(nextErrors).length > 0) {
+      setFieldErrors(nextErrors);
+      return;
+    }
+
+    setIsSaving(true);
+    const res = await apiFetch<{ user?: SafeUserDto }>("/api/admin/users", {
+      method: isNew ? "POST" : "PATCH",
+      body: isNew
+        ? {
+            username: username.trim().toLowerCase(),
+            name: name.trim(),
+            password,
+            role,
+            agentId: role === "agent" ? agentId : null,
+          }
+        : {
+            id: editingUser.id,
+            name: name.trim(),
+            role,
+            agentId: role === "agent" ? agentId : null,
+          },
+    });
+
+    if (!res.ok || !res.data.user) {
+      if (!res.ok && res.fields) setFieldErrors(res.fields);
+      setErrorMsg(
+        !res.ok ? res.message : "Gagal menyimpan data pengguna."
+      );
+      setIsSaving(false);
+      return;
+    }
+
+    onSaved(res.data.user, isNew);
   }
 
   return (
@@ -496,9 +539,14 @@ function UserFormInner({
         <input
           id="user-username-input"
           type="text"
-          disabled={Boolean(editingUser)}
+          disabled={Boolean(editingUser) || isSaving}
           value={username}
-          onChange={(e) => setUsername(e.target.value.toLowerCase())}
+          onChange={(e) => {
+            setUsername(e.target.value.toLowerCase());
+            if (fieldErrors.username) {
+              setFieldErrors((prev) => ({ ...prev, username: "" }));
+            }
+          }}
           placeholder="Contoh: eman"
           aria-invalid={Boolean(fieldErrors.username)}
           className={cn(
@@ -527,8 +575,14 @@ function UserFormInner({
         <input
           id="user-name-input"
           type="text"
+          disabled={isSaving}
           value={name}
-          onChange={(e) => setName(e.target.value)}
+          onChange={(e) => {
+            setName(e.target.value);
+            if (fieldErrors.name) {
+              setFieldErrors((prev) => ({ ...prev, name: "" }));
+            }
+          }}
           placeholder="Contoh: Abdul Rachman Manga"
           aria-invalid={Boolean(fieldErrors.name)}
           className={cn(
@@ -555,8 +609,14 @@ function UserFormInner({
             <input
               id="user-password-input"
               type={showPassword ? "text" : "password"}
+              disabled={isSaving}
               value={password}
-              onChange={(e) => setPassword(e.target.value)}
+              onChange={(e) => {
+                setPassword(e.target.value);
+                if (fieldErrors.password) {
+                  setFieldErrors((prev) => ({ ...prev, password: "" }));
+                }
+              }}
               placeholder="Minimal 6 karakter"
               aria-invalid={Boolean(fieldErrors.password)}
               className={cn(
@@ -596,7 +656,7 @@ function UserFormInner({
         </label>
         <select
           id="user-role-select"
-          disabled={isEditingSelf}
+          disabled={isEditingSelf || isSaving}
           value={role}
           onChange={(e) => setRole(e.target.value as UserRoleType)}
           className={cn(
@@ -619,8 +679,14 @@ function UserFormInner({
           </label>
           <select
             id="user-agent-select"
+            disabled={isSaving}
             value={agentId}
-            onChange={(e) => setAgentId(e.target.value)}
+            onChange={(e) => {
+              setAgentId(e.target.value);
+              if (fieldErrors.agentId) {
+                setFieldErrors((prev) => ({ ...prev, agentId: "" }));
+              }
+            }}
             aria-invalid={Boolean(fieldErrors.agentId)}
             className={cn(
               "h-10 w-full rounded-md border bg-neutral-0 px-3 text-sm text-neutral-900 focus:outline-none focus:ring-2 focus:ring-primary-500",
@@ -643,13 +709,9 @@ function UserFormInner({
       )}
 
       {errorMsg && (
-        <div
-          role="alert"
-          className="flex items-start gap-2 rounded-md border border-debit-bg bg-debit-bg px-3 py-2.5 text-xs font-medium text-debit-text"
-        >
-          <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
-          <span>{errorMsg}</span>
-        </div>
+        <AlertBanner variant="error" onDismiss={() => setErrorMsg(null)}>
+          {errorMsg}
+        </AlertBanner>
       )}
 
       <div className="flex items-center justify-end gap-2.5 border-t border-surface-border pt-4">
@@ -693,30 +755,21 @@ function ResetPasswordInner({
     }
 
     setIsSaving(true);
-    try {
-      const res = await fetch("/api/admin/users", {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          id: user.id,
-          newPassword,
-        }),
-      });
-      const data = (await res.json()) as { message?: string };
+    const res = await apiFetch("/api/admin/users", {
+      method: "PATCH",
+      body: {
+        id: user.id,
+        newPassword,
+      },
+    });
 
-      if (!res.ok) {
-        setErrorMsg(
-          data.message ?? "Terjadi kesalahan. Silakan coba lagi."
-        );
-        setIsSaving(false);
-        return;
-      }
-
-      onResetDone();
-    } catch {
-      setErrorMsg("Terjadi kesalahan. Silakan coba lagi.");
+    if (!res.ok) {
+      setErrorMsg(res.message);
       setIsSaving(false);
+      return;
     }
+
+    onResetDone();
   }
 
   return (
@@ -733,8 +786,12 @@ function ResetPasswordInner({
             id="reset-password-input"
             type={showPassword ? "text" : "password"}
             autoFocus
+            disabled={isSaving}
             value={newPassword}
-            onChange={(e) => setNewPassword(e.target.value)}
+            onChange={(e) => {
+              setNewPassword(e.target.value);
+              setErrorMsg(null);
+            }}
             placeholder="Minimal 6 karakter"
             className="h-10 w-full rounded-md border border-neutral-200 bg-neutral-0 pl-3 pr-10 text-sm text-neutral-900 placeholder:text-neutral-400 focus:outline-none focus:ring-2 focus:ring-primary-500"
           />
@@ -756,13 +813,9 @@ function ResetPasswordInner({
       </div>
 
       {errorMsg && (
-        <div
-          role="alert"
-          className="flex items-start gap-2 rounded-md border border-debit-bg bg-debit-bg px-3 py-2.5 text-xs font-medium text-debit-text"
-        >
-          <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
-          <span>{errorMsg}</span>
-        </div>
+        <AlertBanner variant="error" onDismiss={() => setErrorMsg(null)}>
+          {errorMsg}
+        </AlertBanner>
       )}
 
       <div className="flex items-center justify-end gap-2.5 border-t border-surface-border pt-4">
@@ -781,4 +834,3 @@ function ResetPasswordInner({
     </form>
   );
 }
-

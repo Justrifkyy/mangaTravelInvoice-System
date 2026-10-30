@@ -1,6 +1,6 @@
 import * as React from "react";
 import { BrandLogo } from "@/components/brand/brand-logo";
-import { Skeleton } from "@/components/ui/skeleton";
+import { IndeterminateProgressBar, Skeleton } from "@/components/ui/skeleton";
 
 export function AppShellSkeleton({
   pageTitle,
@@ -17,16 +17,25 @@ export function AppShellSkeleton({
         </div>
         <div className="flex-1 space-y-2 px-3 py-4">
           <Skeleton className="h-10 w-full" />
+          <Skeleton className="h-9 w-full opacity-60" />
           <Skeleton className="h-9 w-full opacity-50" />
-          <Skeleton className="h-9 w-full opacity-50" />
+          <Skeleton className="h-9 w-full opacity-40" />
+        </div>
+        <div className="border-t border-surface-border p-3 space-y-2">
+          <Skeleton className="h-12 w-full" />
+          <Skeleton className="h-8 w-full opacity-60" />
         </div>
       </aside>
       <div className="flex min-w-0 flex-1 flex-col">
-        <header className="flex h-16 items-center justify-between border-b border-surface-border bg-surface-card px-4 sm:px-6 lg:px-8">
+        <header className="relative flex h-16 items-center justify-between border-b border-surface-border bg-surface-card px-4 sm:px-6 lg:px-8">
           <h1 className="text-lg font-bold text-neutral-900 sm:text-2xl">
             {pageTitle}
           </h1>
-          <Skeleton className="h-8 w-44" />
+          <Skeleton className="h-7 w-28 rounded-full" />
+          <IndeterminateProgressBar
+            label={`Memuat halaman ${pageTitle}`}
+            className="absolute inset-x-0 bottom-0"
+          />
         </header>
         <main className="mx-auto w-full max-w-[1440px] flex-1 p-4 sm:p-6 lg:p-8">
           {children}
@@ -35,4 +44,3 @@ export function AppShellSkeleton({
     </div>
   );
 }
-
